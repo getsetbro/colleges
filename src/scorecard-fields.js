@@ -272,6 +272,36 @@ export const PROGRAM_FIELD_LABELS = {
 };
 
 /**
+ * CIP 2-digit series → PROGRAM_FIELD_LABELS key. Popular-programs data is
+ * reported per family (CIP 2-digit), while the nested program list is CIP
+ * 4-digit; this lets a detailed program (e.g. "5138" Registered Nursing) be
+ * traced back to the popular-programs family it rolls up into ("health").
+ */
+const CIP_SERIES_TO_PROGRAM_KEY = {
+  '01': 'agriculture', '03': 'resources', '04': 'architecture', '05': 'ethnic_cultural_gender',
+  '09': 'communication', '10': 'communications_technology', '11': 'computer', '12': 'personal_culinary',
+  '13': 'education', '14': 'engineering', '15': 'engineering_technology', '16': 'language',
+  '19': 'family_consumer_science', '22': 'legal', '23': 'english', '24': 'humanities', '25': 'library',
+  '26': 'biological', '27': 'mathematics', '28': 'military', '29': 'military', '30': 'multidiscipline',
+  '31': 'parks_recreation_fitness', '38': 'philosophy_religious', '39': 'theology_religious_vocation',
+  '40': 'physical_science', '41': 'science_technology', '42': 'psychology', '43': 'security_law_enforcement',
+  '44': 'public_administration_social_service', '45': 'social_science', '46': 'construction',
+  '47': 'mechanic_repair_technology', '48': 'precision_production', '49': 'transportation',
+  '50': 'visual_performing', '51': 'health', '52': 'business_marketing', '54': 'history'
+};
+
+/**
+ * Map a CIP-4-digit program code (e.g. "5138") to its popular-programs family
+ * key (e.g. "health"), or undefined when the series isn't tracked.
+ * @param {*} code
+ * @returns {string|undefined}
+ */
+export function programFamilyKey(code) {
+  if (code == null) return undefined;
+  return CIP_SERIES_TO_PROGRAM_KEY[String(code).padStart(4, '0').slice(0, 2)];
+}
+
+/**
  * Special-designation flags (value 1 = applies). Rendered as badges; `title`
  * supplies the hover tooltip explaining each designation.
  * @type {Array<{key: string, label: string, title: string}>}

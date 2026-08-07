@@ -19,6 +19,7 @@ import {
   formatRange,
   formatCoordinate,
   formatMiles,
+  programFamilyKey,
   NOT_REPORTED
 } from './scorecard-fields.js';
 
@@ -278,18 +279,28 @@ class CollegeResults extends HTMLElement {
         <div class="status">Set your criteria and run a search.</div>
         <form class="result-controls" hidden>
           <label>Filter results<input class="result-query" type="search" placeholder="School, city, or state" autocomplete="off" /></label>
-          <label>Ownership<select class="ownership-filter"><option value="">All types</option><option value="1">Public</option><option value="2">Private nonprofit</option><option value="3">Private for-profit</option></select></label>
-          <label>Max tuition<input class="tuition-filter" type="number" min="0" step="1000" placeholder="No maximum" inputmode="numeric" /></label>
-          <label>Sort by<select class="result-sort"><option value="name-asc">Name: A–Z</option><option value="distance-asc">Distance: nearest first</option><option value="enrollment-asc">Enrollment: low to high</option><option value="enrollment-desc">Enrollment: high to low</option><option value="net-price-asc">Net price: low to high</option><option value="admission-rate-desc">Admission rate: high to low</option></select></label>
+          <label>Field of study<input class="program-filter" type="search" placeholder="e.g. Nursing, Computer Science" autocomplete="off" /></label>
+          <label>Sort by<select class="result-sort"><option value="relevance" hidden>Relevance</option><option value="name-asc" selected>Name: A–Z</option><option value="distance-asc">Distance: nearest first</option><option value="enrollment-asc">Enrollment: low to high</option><option value="enrollment-desc">Enrollment: high to low</option><option value="net-price-asc">Net price: low to high</option><option value="admission-rate-desc">Admission rate: high to low</option></select></label>
           <button class="secondary clear-filters" type="button">Reset</button>
         </form>
         <div class="results-grid" aria-live="polite"></div>
       </section>`;
     const controls = /** @type {HTMLFormElement} */ (this.querySelector('.result-controls'));
     controls.addEventListener('submit', (event) => event.preventDefault());
+    // Entering a field of study switches sorting to Relevance (popular-program
+    // matches first); clearing it drops back to Name. Runs in the target phase,
+    // before the form-level input handler below re-filters, so #update() sees it.
+    this.querySelector('.program-filter')?.addEventListener('input', (event) => {
+      const sort = /** @type {HTMLSelectElement} */ (this.querySelector('.result-sort'));
+      const relevance = /** @type {HTMLOptionElement} */ (sort.querySelector('option[value="relevance"]'));
+      const hasProgram = Boolean(/** @type {HTMLInputElement} */ (event.currentTarget).value.trim());
+      relevance.hidden = !hasProgram;
+      if (hasProgram) sort.value = 'relevance';
+      else if (sort.value === 'relevance') sort.value = 'name-asc';
+    });
     controls.addEventListener('input', () => this.#update());
     this.querySelector('.clear-filters')?.addEventListener('click', () => {
-      controls.reset();
+      this.#resetControls();
       this.#update();
     });
     this.querySelector('.export-button')?.addEventListener('click', () => this.#export());
@@ -313,10 +324,16 @@ class CollegeResults extends HTMLElement {
   /** @param {MappedSchool[]} value */
   set results(value) {
     this.#allResults = [...value];
-    const controls = this.#controls();
-    controls.reset();
-    controls.hidden = value.length === 0;
+    this.#resetControls();
+    this.#controls().hidden = value.length === 0;
     this.#update();
+  }
+
+  /** Reset filter/sort controls to their defaults and re-hide the Relevance sort. */
+  #resetControls() {
+    this.#controls().reset();
+    const relevance = /** @type {HTMLOptionElement|null} */ (this.querySelector('.result-sort option[value="relevance"]'));
+    if (relevance) relevance.hidden = true;
   }
 
   /** @param {string} message */
@@ -350,9 +367,11 @@ class CollegeResults extends HTMLElement {
     const query = /** @type {HTMLInputElement} */ (this.querySelector('.result-query')).value
       .trim()
       .toLocaleLowerCase();
-    const ownership = /** @type {HTMLSelectElement} */ (this.querySelector('.ownership-filter')).value;
-    const maxTuition = this.#optionalNumber('.tuition-filter');
-    const [field, direction] = /** @type {HTMLSelectElement} */ (this.querySelector('.result-sort')).value.split('-');
+    const program = /** @type {HTMLInputElement} */ (this.querySelector('.program-filter')).value
+      .trim()
+      .toLocaleLowerCase();
+    const sort = /** @type {HTMLSelectElement} */ (this.querySelector('.result-sort')).value;
+    const [field, direction] = sort.split('-');
     /** @type {Record<string, (school: MappedSchool) => number|undefined>} */
     const getters = {
       distance: (school) => school.location.distance,
@@ -367,32 +386,47 @@ class CollegeResults extends HTMLElement {
           .filter(Boolean)
           .join(' ')
           .toLocaleLowerCase();
-        // Compare against in-state tuition for schools in the ZIP's state,
-        // out-of-state tuition for everything else.
-        const tuition = this.#isOutOfState(school) ? school.cost.tuitionOutOfState : school.cost.tuitionInState;
         return (
           (!query || searchable.includes(query)) &&
-          (!ownership || String(school.ownershipCode) === ownership) &&
-          (maxTuition == null || (tuition != null && tuition <= maxTuition))
+          (!program || school.academics.programs.some((p) => p.title?.toLocaleLowerCase().includes(program)))
         );
       })
-      .sort((a, b) =>
-        field === 'name'
+      .sort((a, b) => {
+        // Relevance: alphabetical, but schools offering the field as one of their
+        // popular programs rank ahead of those that merely offer it.
+        if (sort === 'relevance') {
+          return (
+            this.#popularProgramRank(a, program) - this.#popularProgramRank(b, program) ||
+            a.name.localeCompare(b.name)
+          );
+        }
+        return field === 'name'
           ? a.name.localeCompare(b.name)
-          : compareNullable(getter?.(a), getter?.(b), direction === 'desc' ? -1 : 1) || a.name.localeCompare(b.name)
-      );
+          : compareNullable(getter?.(a), getter?.(b), direction === 'desc' ? -1 : 1) || a.name.localeCompare(b.name);
+      });
     this.#render(results);
+  }
+
+  /**
+   * Rank for relevance sorting: 0 when the queried field of study is one of the
+   * school's popular programs (matched CIP program rolls up into a reported
+   * popular-programs family), 1 otherwise.
+   * @param {MappedSchool} school
+   * @param {string} program lowercased field-of-study query
+   * @returns {0 | 1}
+   */
+  #popularProgramRank(school, program) {
+    if (!program) return 1;
+    const popular = new Set(school.academics.topPrograms.map((entry) => entry.key));
+    const isPopular = school.academics.programs.some(
+      (p) => p.title?.toLocaleLowerCase().includes(program) && popular.has(programFamilyKey(p.code))
+    );
+    return isPopular ? 0 : 1;
   }
 
   /** @param {MappedSchool} school @returns {boolean} true when the school sits outside the searched ZIP's state */
   #isOutOfState(school) {
     return Boolean(this.#originState) && school.location.state?.toUpperCase() !== this.#originState;
-  }
-
-  /** @param {string} selector @returns {number|null} */
-  #optionalNumber(selector) {
-    const value = /** @type {HTMLInputElement} */ (this.querySelector(selector)).value;
-    return value === '' ? null : Number(value);
   }
 
   /** @param {MappedSchool[]} results */
