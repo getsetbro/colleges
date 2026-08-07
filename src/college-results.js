@@ -1,24 +1,259 @@
+// @ts-check
+import {
+  OWNERSHIP,
+  PREDOMINANT_DEGREE,
+  HIGHEST_DEGREE,
+  LOCALE,
+  CARNEGIE_BASIC,
+  CARNEGIE_UNDERGRAD,
+  CARNEGIE_SIZE_SETTING,
+  RELIGIOUS_AFFILIATION,
+  TEST_REQUIREMENTS,
+  CREDENTIAL_LEVEL,
+  LATEST_ALIAS_NOTE,
+  label,
+  formatCurrency,
+  formatCount,
+  formatPercent,
+  formatScore,
+  formatRange,
+  formatCoordinate,
+  formatMiles,
+  NOT_REPORTED
+} from './scorecard-fields.js';
+
+/** @typedef {import('./scorecard-fields.js').MappedSchool} MappedSchool */
+
 const DIRECTIONS_ORIGIN = '45036';
+const MAX_PROGRAM_ROWS = 15;
 
-const schoolType = (ownership) => ({ 1: 'Public', 2: 'Private nonprofit', 3: 'Private for-profit' })[ownership] ?? 'Unknown';
-const formatNumber = (value) => value == null ? 'Not reported' : Number(value).toLocaleString();
-const formatPercent = (value) => value == null ? 'Not reported' : `${Math.round(Number(value) * 100)}%`;
-const formatCurrency = (value) => value == null ? 'Not reported' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(value);
-const escapeHtml = (value) => String(value ?? '').replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[character]);
+/** @param {*} value @returns {string} */
+const escapeHtml = (value) =>
+  String(value ?? '').replace(
+    /[&<>'"]/g,
+    (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[character] ?? character
+  );
 
-function safeUrl(value) {
-  if (!value) return null;
-  try { return new URL(/^https?:\/\//i.test(value) ? value : `https://${value}`).href; } catch { return null; }
-}
+const ownershipLabel = (code) => label(OWNERSHIP, code);
 
+/** @param {MappedSchool} school @returns {string} */
 function directionsUrl(school) {
-  const coordinates = [school['location.lat'], school['location.lon']];
-  const destination = coordinates.every((value) => value != null) ? coordinates.join(',') : `${school['school.name']}, ${school['school.city']}, ${school['school.state']} ${school['school.zip']}`;
+  const { lat, lon, city, state, zip } = school.location;
+  const destination =
+    lat != null && lon != null ? `${lat},${lon}` : `${school.name}, ${city ?? ''}, ${state ?? ''} ${zip ?? ''}`;
   return `https://www.google.com/maps/dir/?${new URLSearchParams({ api: '1', origin: DIRECTIONS_ORIGIN, destination, travelmode: 'driving' })}`;
 }
 
-function detailGroup(title, items) {
-  return `<section class="detail-group"><h4>${title}</h4><dl>${items.map(([label, value]) => `<div><dt>${label}</dt><dd>${escapeHtml(value)}</dd></div>`).join('')}</dl></section>`;
+/**
+ * Render a labelled section. `items` are [label, value] pairs; a value may be
+ * `{ html }` to inject already-safe markup (links, ranges) instead of escaped text.
+ * When `collapsible` is set, only the title shows until the user clicks to reveal
+ * the rows (native <details> disclosure).
+ * @param {string} title
+ * @param {Array<[string, string | { html: string }]>} items
+ * @param {string} [source]
+ * @param {{ collapsible?: boolean }} [options]
+ * @returns {string}
+ */
+function detailGroup(title, items, source, options = {}) {
+  const rows = items
+    .map(([itemLabel, value]) => {
+      const dd = typeof value === 'object' ? value.html : escapeHtml(value);
+      return `<div><dt>${escapeHtml(itemLabel)}</dt><dd>${dd}</dd></div>`;
+    })
+    .join('');
+  const caption = source ? `<p class="detail-source">Source: ${escapeHtml(source)}</p>` : '';
+  if (options.collapsible) {
+    return `<details class="detail-group detail-group-collapsible"><summary><h4>${escapeHtml(title)}</h4></summary><dl>${rows}</dl>${caption}</details>`;
+  }
+  return `<section class="detail-group"><h4>${escapeHtml(title)}</h4><dl>${rows}</dl>${caption}</section>`;
+}
+
+/** @param {string|undefined} url @param {string} text @returns {{ html: string }} */
+function linkValue(url, text) {
+  if (!url) return { html: escapeHtml(NOT_REPORTED) };
+  return { html: `<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer">${escapeHtml(text)} ↗</a>` };
+}
+
+/** @param {MappedSchool} school @returns {string} */
+function profileGroup(school) {
+  const p = school.profile;
+  return detailGroup(
+    'School profile',
+    [
+      ['Ownership', ownershipLabel(p.ownership)],
+      ['Predominant degree', label(PREDOMINANT_DEGREE, p.predominantDegree)],
+      ['Highest degree', label(HIGHEST_DEGREE, p.highestDegree)],
+      ['Carnegie classification', label(CARNEGIE_BASIC, p.carnegieBasic)],
+      ['Undergraduate profile', label(CARNEGIE_UNDERGRAD, p.carnegieUndergrad)],
+      ['Size & setting', label(CARNEGIE_SIZE_SETTING, p.carnegieSizeSetting)],
+      ['Main campus', p.mainCampus === 1 ? 'Yes' : p.mainCampus === 0 ? 'No (branch)' : NOT_REPORTED],
+      ['Branch campuses', formatCount(p.branches, { zeroOk: true })],
+      ['Religious affiliation', label(RELIGIOUS_AFFILIATION, p.religiousAffiliation)],
+      ['Website', linkValue(p.website, 'Homepage')],
+      ['Net price calculator', linkValue(p.netPriceCalculatorUrl, 'Calculator')]
+    ],
+    'IPEDS'
+  );
+}
+
+/** @param {MappedSchool} school @returns {string} */
+function locationGroup(school) {
+  const l = school.location;
+  const items = /** @type {Array<[string, string | { html: string }]>} */ ([
+    ['City', l.city ?? NOT_REPORTED],
+    ['State', l.state ?? NOT_REPORTED],
+    ['ZIP code', l.zip ?? NOT_REPORTED],
+    ['Setting (locale)', label(LOCALE, l.locale)],
+    ['Latitude', formatCoordinate(l.lat)],
+    ['Longitude', formatCoordinate(l.lon)]
+  ]);
+  if (l.distance != null) items.push(['Distance from search ZIP', formatMiles(l.distance)]);
+  return detailGroup('Location', items, 'IPEDS');
+}
+
+/** @param {MappedSchool} school @returns {string} */
+function enrollmentGroup(school) {
+  const e = school.enrollment;
+  const d = e.demographics;
+  return detailGroup(
+    'Enrollment',
+    [
+      ['Undergraduates (degree-seeking)', formatCount(e.size)],
+      ['All undergraduates', formatCount(e.total)],
+      ['Undergrad (12-month)', formatCount(e.undergrad12mo)],
+      ['Graduate (12-month)', formatCount(e.grad12mo)],
+      ['Part-time share', formatPercent(e.partTimeShare)],
+      ['Aged 25 and older', formatPercent(e.share25older)],
+      ['Men', formatPercent(d.men)],
+      ['Women', formatPercent(d.women)],
+      ['White', formatPercent(d.white)],
+      ['Black', formatPercent(d.black)],
+      ['Hispanic', formatPercent(d.hispanic)],
+      ['Asian', formatPercent(d.asian)],
+      ['American Indian/Alaska Native', formatPercent(d.aian)],
+      ['Native Hawaiian/Pacific Islander', formatPercent(d.nhpi)],
+      ['Two or more races', formatPercent(d.twoOrMore)],
+      ['Non-resident', formatPercent(d.nonResidentAlien)],
+      ['Race/ethnicity unknown', formatPercent(d.unknown)]
+    ],
+    'IPEDS'
+  );
+}
+
+/** @param {MappedSchool} school @returns {string} */
+function admissionsGroup(school) {
+  const a = school.admissions;
+  const openAdmissions = a.admissionRate === 1 ? ' (open admissions)' : '';
+  return detailGroup(
+    'Admissions',
+    [
+      ['Admission rate', a.admissionRate == null ? NOT_REPORTED : `${formatPercent(a.admissionRate)}${openAdmissions}`],
+      ['Admission rate (all campuses)', formatPercent(a.admissionRateOpe)],
+      ['Test policy', label(TEST_REQUIREMENTS, a.testRequirements)],
+      ['SAT average', formatScore(a.satAverage)],
+      ['SAT reading (25th–75th)', { html: escapeHtml(formatRange(a.satReading[0], a.satReading[1])) }],
+      ['SAT math (25th–75th)', { html: escapeHtml(formatRange(a.satMath[0], a.satMath[1])) }],
+      ['ACT cumulative (25th–75th)', { html: escapeHtml(formatRange(a.act[0], a.act[1])) }],
+      ['ACT midpoint', formatScore(a.actMidpoint)]
+    ],
+    'IPEDS'
+  );
+}
+
+/** @param {MappedSchool} school @returns {string} */
+function costGroup(school) {
+  const c = school.cost;
+  const income = c.netPriceByIncome.public;
+  const privateIncome = c.netPriceByIncome.private;
+  // Net price by income: public and private are mutually exclusive by ownership.
+  const bracket = (key) => formatCurrency(income[key] ?? privateIncome[key]);
+  return detailGroup(
+    'Costs & aid',
+    [
+      ['In-state tuition & fees', formatCurrency(c.tuitionInState)],
+      ['Out-of-state tuition & fees', formatCurrency(c.tuitionOutOfState)],
+      ['Total cost of attendance (year)', formatCurrency(c.attendanceAcademicYear)],
+      ['On-campus room & board', formatCurrency(c.roomBoardOnCampus)],
+      ['Books & supplies', formatCurrency(c.bookSupply)],
+      ['Average net price', formatCurrency(c.netPriceOverall)],
+      ['Net price · income $0–30K', bracket('0-30000')],
+      ['Net price · $30K–48K', bracket('30001-48000')],
+      ['Net price · $48K–75K', bracket('48001-75000')],
+      ['Net price · $75K–110K', bracket('75001-110000')],
+      ['Net price · $110K+', bracket('110001-plus')],
+      ['Pell Grant recipients', formatPercent(school.aid.pellRate)],
+      ['Federal loan recipients', formatPercent(school.aid.federalLoanRate)],
+      ['Median debt (completers)', formatCurrency(school.aid.medianDebtCompleters)],
+      ['Est. monthly loan payment', formatCurrency(school.aid.medianDebtMonthly)]
+    ],
+    'IPEDS; aid & debt from NSLDS'
+  );
+}
+
+/** @param {MappedSchool} school @returns {string} */
+function outcomesGroup(school) {
+  const o = school.outcomes;
+  return detailGroup(
+    'Outcomes',
+    [
+      ['Retention — 4yr, full-time', formatPercent(o.retentionFourYearFull)],
+      ['Retention — <4yr, full-time', formatPercent(o.retentionLtFourYearFull)],
+      ['Retention — 4yr, part-time', formatPercent(o.retentionFourYearPart)],
+      ['Completion — 4yr (150% time)', formatPercent(o.completion4yr150)],
+      ['Completion — <4yr (150% time)', formatPercent(o.completionLt4yr150)],
+      ['Completion — 4yr (100% time)', formatPercent(o.completion4yr100)],
+      ['Transfer rate — 4yr, full-time', formatPercent(o.transfer4yr)],
+      ['Median earnings — 6 yrs after entry', formatCurrency(o.earnings6yr)],
+      ['Median earnings — 10 yrs after entry', formatCurrency(o.earnings10yr)],
+      ['Earning above HS-grad threshold (10 yr)', formatPercent(o.shareEarningAboveHsGrad)],
+      ['HS-grad earnings benchmark', formatCurrency(o.hsGradEarningsThreshold)],
+      ['Loans repaid & declining (3 yr)', formatPercent(o.repaymentRate3yr)],
+      ['Default rate (2 yr cohort)', formatPercent(o.defaultRate2yr)],
+      ['Default rate (3 yr cohort)', formatPercent(o.defaultRate3yr)]
+    ],
+    'IPEDS; earnings from U.S. Treasury; repayment from NSLDS; default rates from Federal Student Aid',
+    { collapsible: true }
+  );
+}
+
+/** @param {MappedSchool} school @returns {string} */
+function academicsGroup(school) {
+  const top = school.academics.topPrograms.slice(0, 6);
+  const items = top.length
+    ? /** @type {Array<[string, string | { html: string }]>} */ (
+        top.map((program) => [program.label, formatPercent(program.share)])
+      )
+    : /** @type {Array<[string, string | { html: string }]>} */ ([['Popular programs', NOT_REPORTED]]);
+  return detailGroup('Popular programs (share of degrees)', items, 'IPEDS');
+}
+
+/** @param {MappedSchool} school @returns {string} */
+function programsTable(school) {
+  const programs = school.academics.programs
+    .slice()
+    .sort((a, b) => String(a.title ?? '').localeCompare(String(b.title ?? '')));
+  if (!programs.length) return '';
+  const total = programs.length;
+  // Rows past the cap are rendered but hidden until the user expands (CSS toggle).
+  const rows = programs
+    .map((program, index) => {
+      const credential =
+        program.credentialTitle != null
+          ? String(program.credentialTitle)
+          : label(CREDENTIAL_LEVEL, program.credentialLevel);
+      const overflow = index >= MAX_PROGRAM_ROWS ? ' class="program-overflow"' : '';
+      return `<tr${overflow}><td>${escapeHtml(program.title ?? NOT_REPORTED)}</td><td>${escapeHtml(credential)}</td><td>${escapeHtml(formatCount(program.awards, { zeroOk: true }))}</td><td>${escapeHtml(formatCurrency(program.earnings1yr))}</td><td>${escapeHtml(formatCurrency(program.medianDebt))}</td></tr>`;
+    })
+    .join('');
+  let checkbox = '';
+  let toggleLabels = '';
+  if (total > MAX_PROGRAM_ROWS) {
+    const toggleId = `programs-toggle-${escapeHtml(school.id)}`;
+    checkbox = `<input type="checkbox" id="${toggleId}" class="program-toggle" hidden />`;
+    toggleLabels = `<label class="program-toggle-label more" for="${toggleId}">Show all ${total} fields of study →</label><label class="program-toggle-label less" for="${toggleId}">Show fewer ↑</label>`;
+  }
+  return `<section class="detail-group program-table"><h4>Fields of study</h4>${checkbox}<table><thead><tr><th>Program</th><th>Credential</th><th>Awards</th><th>Median earnings (1 yr)</th><th>Median debt</th></tr></thead><tbody>${rows}</tbody></table>${toggleLabels}<p class="detail-source">Sorted alphabetically. Source: IPEDS; program earnings &amp; debt from U.S. Treasury &amp; NSLDS</p></section>`;
 }
 
 function compareNullable(a, b, direction = 1) {
@@ -29,8 +264,12 @@ function compareNullable(a, b, direction = 1) {
 }
 
 class CollegeResults extends HTMLElement {
+  /** @type {MappedSchool[]} */
   #allResults = [];
+  /** @type {MappedSchool[]} */
   #currentResults = [];
+  /** @type {string|null} state abbreviation of the searched ZIP; schools elsewhere render as out-of-state */
+  #originState = null;
 
   connectedCallback() {
     this.innerHTML = `
@@ -40,107 +279,208 @@ class CollegeResults extends HTMLElement {
         <form class="result-controls" hidden>
           <label>Filter results<input class="result-query" type="search" placeholder="School, city, or state" autocomplete="off" /></label>
           <label>Ownership<select class="ownership-filter"><option value="">All types</option><option value="1">Public</option><option value="2">Private nonprofit</option><option value="3">Private for-profit</option></select></label>
-          <label>Max in-state tuition<input class="in-state-tuition-filter" type="number" min="0" step="1000" placeholder="No maximum" inputmode="numeric" /></label>
-          <label>Max out-of-state tuition<input class="out-of-state-tuition-filter" type="number" min="0" step="1000" placeholder="No maximum" inputmode="numeric" /></label>
+          <label>Max tuition<input class="tuition-filter" type="number" min="0" step="1000" placeholder="No maximum" inputmode="numeric" /></label>
           <label>Sort by<select class="result-sort"><option value="name-asc">Name: A–Z</option><option value="distance-asc">Distance: nearest first</option><option value="enrollment-asc">Enrollment: low to high</option><option value="enrollment-desc">Enrollment: high to low</option><option value="net-price-asc">Net price: low to high</option><option value="admission-rate-desc">Admission rate: high to low</option></select></label>
           <button class="secondary clear-filters" type="button">Reset</button>
         </form>
         <div class="results-grid" aria-live="polite"></div>
       </section>`;
-    this.querySelector('.result-controls').addEventListener('submit', (event) => event.preventDefault());
-    this.querySelector('.result-controls').addEventListener('input', () => this.#update());
-    this.querySelector('.clear-filters').addEventListener('click', () => { this.querySelector('.result-controls').reset(); this.#update(); });
-    this.querySelector('.export-button').addEventListener('click', () => this.#export());
+    const controls = /** @type {HTMLFormElement} */ (this.querySelector('.result-controls'));
+    controls.addEventListener('submit', (event) => event.preventDefault());
+    controls.addEventListener('input', () => this.#update());
+    this.querySelector('.clear-filters')?.addEventListener('click', () => {
+      controls.reset();
+      this.#update();
+    });
+    this.querySelector('.export-button')?.addEventListener('click', () => this.#export());
   }
 
   set loading(value) {
     if (!value) return;
-    const status = this.querySelector('.status');
+    const status = /** @type {HTMLElement} */ (this.querySelector('.status'));
     status.className = 'status loading';
     status.textContent = 'Querying College Scorecard…';
-    this.querySelector('.results-grid').innerHTML = '';
-    this.querySelector('.result-controls').hidden = true;
-    this.querySelector('.export-button').hidden = true;
+    this.#grid().innerHTML = '';
+    this.#controls().hidden = true;
+    this.#exportButton().hidden = true;
   }
 
+  /** @param {string|null} value state abbreviation of the searched ZIP */
+  set originState(value) {
+    this.#originState = value ? value.toUpperCase() : null;
+  }
+
+  /** @param {MappedSchool[]} value */
   set results(value) {
     this.#allResults = [...value];
-    const controls = this.querySelector('.result-controls');
+    const controls = this.#controls();
     controls.reset();
     controls.hidden = value.length === 0;
     this.#update();
   }
 
+  /** @param {string} message */
   setError(message) {
     this.#allResults = [];
     this.#currentResults = [];
-    const status = this.querySelector('.status');
+    const status = /** @type {HTMLElement} */ (this.querySelector('.status'));
     status.className = 'status error';
     status.textContent = message;
-    this.querySelector('.results-grid').innerHTML = '';
-    this.querySelector('.result-controls').hidden = true;
-    this.querySelector('.export-button').hidden = true;
+    this.#grid().innerHTML = '';
+    this.#controls().hidden = true;
+    this.#exportButton().hidden = true;
+  }
+
+  /** @returns {HTMLFormElement} */
+  #controls() {
+    return /** @type {HTMLFormElement} */ (this.querySelector('.result-controls'));
+  }
+
+  /** @returns {HTMLElement} */
+  #grid() {
+    return /** @type {HTMLElement} */ (this.querySelector('.results-grid'));
+  }
+
+  /** @returns {HTMLButtonElement} */
+  #exportButton() {
+    return /** @type {HTMLButtonElement} */ (this.querySelector('.export-button'));
   }
 
   #update() {
-    const query = this.querySelector('.result-query').value.trim().toLocaleLowerCase();
-    const ownership = this.querySelector('.ownership-filter').value;
-    const maxInStateTuition = this.#optionalNumber('.in-state-tuition-filter');
-    const maxOutOfStateTuition = this.#optionalNumber('.out-of-state-tuition-filter');
-    const [field, direction] = this.querySelector('.result-sort').value.split('-');
-    const getter = { distance: (school) => school.distance, enrollment: (school) => school['latest.student.size'], 'net-price': (school) => school['latest.cost.avg_net_price.overall'], 'admission-rate': (school) => school['latest.admissions.admission_rate.overall'] }[field];
-    const results = this.#allResults.filter((school) => {
-      const searchable = [school['school.name'], school['school.city'], school['school.state']].filter(Boolean).join(' ').toLocaleLowerCase();
-      const inStateTuition = school['latest.cost.tuition.in_state'];
-      const outOfStateTuition = school['latest.cost.tuition.out_of_state'];
-      return (!query || searchable.includes(query))
-        && (!ownership || String(school['school.ownership']) === ownership)
-        && (maxInStateTuition == null || (inStateTuition != null && Number(inStateTuition) <= maxInStateTuition))
-        && (maxOutOfStateTuition == null || (outOfStateTuition != null && Number(outOfStateTuition) <= maxOutOfStateTuition));
-    }).sort((a, b) => field === 'name' ? a['school.name'].localeCompare(b['school.name']) : compareNullable(getter(a), getter(b), direction === 'desc' ? -1 : 1) || a['school.name'].localeCompare(b['school.name']));
+    const query = /** @type {HTMLInputElement} */ (this.querySelector('.result-query')).value
+      .trim()
+      .toLocaleLowerCase();
+    const ownership = /** @type {HTMLSelectElement} */ (this.querySelector('.ownership-filter')).value;
+    const maxTuition = this.#optionalNumber('.tuition-filter');
+    const [field, direction] = /** @type {HTMLSelectElement} */ (this.querySelector('.result-sort')).value.split('-');
+    /** @type {Record<string, (school: MappedSchool) => number|undefined>} */
+    const getters = {
+      distance: (school) => school.location.distance,
+      enrollment: (school) => school.enrollment.size,
+      'net-price': (school) => school.cost.netPriceOverall,
+      'admission-rate': (school) => school.admissions.admissionRate
+    };
+    const getter = getters[field];
+    const results = this.#allResults
+      .filter((school) => {
+        const searchable = [school.name, school.location.city, school.location.state]
+          .filter(Boolean)
+          .join(' ')
+          .toLocaleLowerCase();
+        // Compare against in-state tuition for schools in the ZIP's state,
+        // out-of-state tuition for everything else.
+        const tuition = this.#isOutOfState(school) ? school.cost.tuitionOutOfState : school.cost.tuitionInState;
+        return (
+          (!query || searchable.includes(query)) &&
+          (!ownership || String(school.ownershipCode) === ownership) &&
+          (maxTuition == null || (tuition != null && tuition <= maxTuition))
+        );
+      })
+      .sort((a, b) =>
+        field === 'name'
+          ? a.name.localeCompare(b.name)
+          : compareNullable(getter?.(a), getter?.(b), direction === 'desc' ? -1 : 1) || a.name.localeCompare(b.name)
+      );
     this.#render(results);
   }
 
+  /** @param {MappedSchool} school @returns {boolean} true when the school sits outside the searched ZIP's state */
+  #isOutOfState(school) {
+    return Boolean(this.#originState) && school.location.state?.toUpperCase() !== this.#originState;
+  }
+
+  /** @param {string} selector @returns {number|null} */
   #optionalNumber(selector) {
-    const value = this.querySelector(selector).value;
+    const value = /** @type {HTMLInputElement} */ (this.querySelector(selector)).value;
     return value === '' ? null : Number(value);
   }
 
+  /** @param {MappedSchool[]} results */
   #render(results) {
     this.#currentResults = results;
-    this.querySelector('.export-button').hidden = results.length === 0;
-    const status = this.querySelector('.status');
+    this.#exportButton().hidden = results.length === 0;
+    const status = /** @type {HTMLElement} */ (this.querySelector('.status'));
     status.className = 'status';
-    status.textContent = results.length !== this.#allResults.length ? `${results.length} of ${this.#allResults.length} schools shown` : `${results.length} ${results.length === 1 ? 'school' : 'schools'} found`;
-    const output = this.querySelector('.results-grid');
+    status.textContent =
+      results.length !== this.#allResults.length
+        ? `${results.length} of ${this.#allResults.length} schools shown`
+        : `${results.length} ${results.length === 1 ? 'school' : 'schools'} found`;
+    const output = this.#grid();
     if (!results.length) {
-      output.innerHTML = this.#allResults.length ? '<div class="empty"><strong>No schools match these filters.</strong><span>Change or reset the result filters to see more schools.</span></div>' : '<div class="empty"><strong>No matching colleges found.</strong><span>Try increasing the radius or maximum enrollment.</span></div>';
+      output.innerHTML = this.#allResults.length
+        ? '<div class="empty"><strong>No schools match these filters.</strong><span>Change or reset the result filters to see more schools.</span></div>'
+        : '<div class="empty"><strong>No matching colleges found.</strong><span>Try increasing the radius or maximum enrollment.</span></div>';
       return;
     }
     output.innerHTML = results.map((school, index) => this.#card(school, index)).join('');
   }
 
+  /** @param {MappedSchool} school @param {number} index @returns {string} */
   #card(school, index) {
-    const website = safeUrl(school['school.school_url']);
-    const distance = school.distance == null ? 'Within radius' : `${Math.round(school.distance)} mi`;
-    const locationClass = school['school.state']?.toUpperCase() === 'OH' ? '' : ' out-of-state';
+    const distance = school.location.distance == null ? 'Within radius' : `${Math.round(school.location.distance)} mi`;
+    const locationClass = this.#isOutOfState(school) ? ' out-of-state' : '';
+    const designationBadges = school.profile.designations
+      .map((d) => `<span title="${escapeHtml(d.title)}">${escapeHtml(d.label)}</span>`)
+      .join('');
     const groups = [
-      detailGroup('Institution', [['Ownership', schoolType(school['school.ownership'])], ['ZIP code', school['school.zip']], ['Locale code', school['school.locale']], ['Carnegie classification', school['school.carnegie_basic']], ['Religious affiliation code', school['school.religious_affiliation']]]),
-      detailGroup('Admissions', [['Admission rate', formatPercent(school['latest.admissions.admission_rate.overall'])], ['Average SAT', formatNumber(school['latest.admissions.sat_scores.average.overall'])], ['ACT midpoint', formatNumber(school['latest.admissions.act_scores.midpoint.cumulative'])]]),
-      detailGroup('Costs', [['In-state tuition', formatCurrency(school['latest.cost.tuition.in_state'])], ['Out-of-state tuition', formatCurrency(school['latest.cost.tuition.out_of_state'])], ['Average net price', formatCurrency(school['latest.cost.avg_net_price.overall'])], ['On-campus room & board', formatCurrency(school['latest.cost.roomboard.oncampus'])]]),
-      detailGroup('Aid & debt', [['Pell Grant recipients', formatPercent(school['latest.aid.pell_grant_rate'])], ['Federal loan recipients', formatPercent(school['latest.aid.federal_loan_rate'])], ['Median completer debt', formatCurrency(school['latest.aid.median_debt.completers.overall'])]]),
-      detailGroup('Outcomes', [['150% completion rate', formatPercent(school['latest.completion.completion_rate_4yr_150nt'])], ['Full-time retention', formatPercent(school['latest.completion.retention_rate.four_year.full_time'])], ['Median earnings after 10 years', formatCurrency(school['latest.earnings.10_yrs_after_entry.median'])]]),
-      detailGroup('Students', [['Undergraduates', formatNumber(school['latest.student.size'])], ['Part-time', formatPercent(school['latest.student.part_time_share'])], ['Men', formatPercent(school['latest.student.demographics.men'])], ['Women', formatPercent(school['latest.student.demographics.women'])], ['White', formatPercent(school['latest.student.demographics.race_ethnicity.white'])], ['Black', formatPercent(school['latest.student.demographics.race_ethnicity.black'])], ['Hispanic', formatPercent(school['latest.student.demographics.race_ethnicity.hispanic'])], ['Asian', formatPercent(school['latest.student.demographics.race_ethnicity.asian'])]]),
-      detailGroup('Academics', [['Predominant degree code', school['school.degrees_awarded.predominant']]])
+      profileGroup(school),
+      locationGroup(school),
+      enrollmentGroup(school),
+      admissionsGroup(school),
+      costGroup(school),
+      academicsGroup(school),
+      outcomesGroup(school),
+      programsTable(school)
     ].join('');
-    return `<article class="result-card${locationClass}"><div class="rank">${String(index + 1).padStart(2, '0')}</div><div class="school-info"><div class="badges"><span>${distance}</span><span>${schoolType(school['school.ownership'])}</span></div><h3>${escapeHtml(school['school.name'])}</h3><p>${escapeHtml(school['school.city'])}, ${escapeHtml(school['school.state'])}</p></div><div class="enrollment"><strong>${formatNumber(school['latest.student.size'])}</strong><span>undergrads</span></div><div class="card-links">${website ? `<a href="${website}" target="_blank" rel="noreferrer">Website ↗</a>` : ''}<a href="${directionsUrl(school)}" target="_blank" rel="noreferrer">Directions ↗</a></div><details class="school-details"><summary>View all details</summary><div class="detail-grid">${groups}</div></details></article>`;
+    return `<article class="result-card${locationClass}"><div class="rank">${String(index + 1).padStart(2, '0')}</div><div class="school-info"><div class="badges"><span>${escapeHtml(distance)}</span><span>${escapeHtml(ownershipLabel(school.ownershipCode))}</span>${designationBadges}</div><h3>${escapeHtml(school.name)}</h3><p>${escapeHtml(school.location.city ?? '')}, ${escapeHtml(school.location.state ?? '')}</p></div><div class="enrollment"><strong>${escapeHtml(formatCount(school.enrollment.size))}</strong><span>undergrads</span></div><div class="card-links">${school.profile.website ? `<a href="${escapeHtml(school.profile.website)}" target="_blank" rel="noreferrer">Website ↗</a>` : ''}<a href="${escapeHtml(directionsUrl(school))}" target="_blank" rel="noreferrer">Directions ↗</a></div><details class="school-details"><summary>View all details</summary><div class="detail-grid">${groups}</div><p class="detail-note">${escapeHtml(LATEST_ALIAS_NOTE)}</p></details></article>`;
   }
 
   #export() {
     const quote = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`;
-    const rows = [['Institution', 'City', 'State', 'Undergraduates', 'Approx. Distance (mi)', 'Admission Rate', 'In-State Tuition', 'Out-of-State Tuition', 'Average Net Price', 'Pell Grant Rate', 'Median Debt', 'Completion Rate', 'Retention Rate', '10-Year Median Earnings', 'Website', 'Directions'], ...this.#currentResults.map((school) => [school['school.name'], school['school.city'], school['school.state'], school['latest.student.size'], school.distance?.toFixed(1), school['latest.admissions.admission_rate.overall'], school['latest.cost.tuition.in_state'], school['latest.cost.tuition.out_of_state'], school['latest.cost.avg_net_price.overall'], school['latest.aid.pell_grant_rate'], school['latest.aid.median_debt.completers.overall'], school['latest.completion.completion_rate_4yr_150nt'], school['latest.completion.retention_rate.four_year.full_time'], school['latest.earnings.10_yrs_after_entry.median'], safeUrl(school['school.school_url']), directionsUrl(school)])];
+    const header = [
+      'Institution',
+      'City',
+      'State',
+      'Undergraduates',
+      'Approx. Distance (mi)',
+      'Admission Rate',
+      'In-State Tuition',
+      'Out-of-State Tuition',
+      'Total Cost of Attendance',
+      'Average Net Price',
+      'Pell Grant Rate',
+      'Median Debt',
+      'Completion Rate 4yr',
+      'Retention Rate 4yr',
+      '10-Year Median Earnings',
+      'Website'
+    ];
+    const rows = [
+      header,
+      ...this.#currentResults.map((school) => [
+        school.name,
+        school.location.city,
+        school.location.state,
+        school.enrollment.size,
+        school.location.distance?.toFixed(1),
+        school.admissions.admissionRate,
+        school.cost.tuitionInState,
+        school.cost.tuitionOutOfState,
+        school.cost.attendanceAcademicYear,
+        school.cost.netPriceOverall,
+        school.aid.pellRate,
+        school.aid.medianDebtCompleters,
+        school.outcomes.completion4yr150,
+        school.outcomes.retentionFourYearFull,
+        school.outcomes.earnings10yr,
+        school.profile.website
+      ])
+    ];
     const blob = new Blob([rows.map((row) => row.map(quote).join(',')).join('\n')], { type: 'text/csv' });
-    const link = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'college-results.csv' });
+    const link = Object.assign(document.createElement('a'), {
+      href: URL.createObjectURL(blob),
+      download: 'college-results.csv'
+    });
     link.click();
     URL.revokeObjectURL(link.href);
   }

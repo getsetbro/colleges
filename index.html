@@ -4,19 +4,21 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Find small colleges near a ZIP code using College Scorecard data." />
-    <title>College Radius Finder</title>
+    <title>College Scorecards</title>
   </head>
   <body>
     <main>
       <header class="hero">
         <p class="eyebrow">College Scorecard Explorer</p>
         <h1>Find the <span>college</span>.</h1>
-        <p class="intro">Search operating bachelor's-degree institutions by distance and undergraduate enrollment. All matching schools are included.</p>
       </header>
 
       <section class="search-card" aria-labelledby="search-title">
         <div class="section-heading">
-          <div><span class="step">01</span><h2 id="search-title">Search parameters</h2></div>
+          <div>
+            <span class="step">01</span>
+            <h2 id="search-title">Search parameters</h2>
+          </div>
           <span class="quiet">All matching schools included</span>
         </div>
         <college-search-form></college-search-form>
@@ -25,7 +27,10 @@
 
       <college-results></college-results>
     </main>
-    <footer><span>Data from the U.S. Department of Education College Scorecard</span><a href="https://collegescorecard.ed.gov/data/" target="_blank" rel="noreferrer">API documentation ↗</a></footer>
+    <footer>
+      <span>Data from the U.S. Department of Education College Scorecard</span
+      ><a href="https://collegescorecard.ed.gov/data/" target="_blank" rel="noreferrer">API documentation ↗</a>
+    </footer>
     <script type="module" src="/src/app.js"></script>
   </body>
 </html>

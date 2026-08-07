@@ -3,7 +3,7 @@ const template = document.createElement('template');
 template.innerHTML = `
   <style>
     :host { display: block; }
-    form { display: grid; grid-template-columns: repeat(3, 1fr) 1.1fr; gap: 18px; margin-top: 32px; align-items: end; }
+    form { display: grid; grid-template-columns: repeat(4, 1fr) 1.1fr; gap: 18px; margin-top: 32px; align-items: end; }
     label { color: #bfcac6; font: 600 .73rem 'DM Sans', sans-serif; letter-spacing: .06em; text-transform: uppercase; }
     input { box-sizing: border-box; width: 100%; margin-top: 9px; padding: 14px; border: 1px solid #557068; border-radius: 2px; outline: none; background: #24483e; color: #fff; font: inherit; }
     input:focus { border-color: #d4a33d; }
@@ -15,7 +15,8 @@ template.innerHTML = `
   <form>
     <label>ZIP code<input name="zip" inputmode="numeric" pattern="[0-9]{5}" maxlength="5" value="45036" required /></label>
     <label>Radius (miles)<input name="radius" type="number" min="1" max="500" value="170" required /></label>
-    <label>Maximum undergrads<input name="maxStudents" type="number" min="2" max="100000" value="4000" required /></label>
+    <label>Minimum undergrads<input name="minStudents" type="number" min="0" max="100000" value="555" required /></label>
+    <label>Maximum undergrads<input name="maxStudents" type="number" min="2" max="100000" value="2500" required /></label>
     <button type="submit"><span>Search colleges</span><span aria-hidden="true">→</span></button>
   </form>
 `;
@@ -43,14 +44,17 @@ class CollegeSearchForm extends HTMLElement {
   #handleSubmit(event) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
-    this.dispatchEvent(new CustomEvent('search', {
-      bubbles: true,
-      detail: {
-        zip: data.get('zip'),
-        radius: Number(data.get('radius')),
-        maxStudents: Number(data.get('maxStudents'))
-      }
-    }));
+    this.dispatchEvent(
+      new CustomEvent('search', {
+        bubbles: true,
+        detail: {
+          zip: data.get('zip'),
+          radius: Number(data.get('radius')),
+          minStudents: Number(data.get('minStudents')),
+          maxStudents: Number(data.get('maxStudents'))
+        }
+      })
+    );
   }
 }
 
