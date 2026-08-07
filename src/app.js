@@ -26,22 +26,45 @@ function haversineMiles(origin, destination) {
 }
 
 /**
- * Resolve a ZIP code to its coordinates and state via zippopotam.us.
+ * Resolve a ZIP code to its coordinates and state via zippopotam.us. Results are
+ * effectively static, so they're cached per-ZIP in sessionStorage. A 404 (unknown
+ * ZIP) is cached too; transient network errors are not.
  * @param {string} zip
  * @returns {Promise<{ coordinates: [number, number], state: string|null }|null>}
  */
 async function getZipLocation(zip) {
+  const cacheKey = `zip:${zip}`;
+  try {
+    const cached = sessionStorage.getItem(cacheKey);
+    if (cached != null) return JSON.parse(cached);
+  } catch {
+    // sessionStorage unavailable — fall through to the network.
+  }
   try {
     const response = await fetch(`https://api.zippopotam.us/us/${zip}`);
-    if (!response.ok) return null;
+    if (!response.ok) {
+      if (response.status === 404) cacheZipLocation(cacheKey, null);
+      return null;
+    }
     const data = await response.json();
     const place = data.places[0];
-    return {
-      coordinates: [Number(place.latitude), Number(place.longitude)],
+    const result = {
+      coordinates: /** @type {[number, number]} */ ([Number(place.latitude), Number(place.longitude)]),
       state: place['state abbreviation'] ?? null
     };
+    cacheZipLocation(cacheKey, result);
+    return result;
   } catch {
     return null;
+  }
+}
+
+/** @param {string} key @param {object|null} value */
+function cacheZipLocation(key, value) {
+  try {
+    sessionStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // sessionStorage unavailable or full — skip caching.
   }
 }
 
@@ -58,10 +81,13 @@ searchForm.addEventListener('search', async (/** @type {CustomEvent} */ event) =
       getZipLocation(event.detail.zip)
     ]);
     const origin = zipLocation?.coordinates ?? null;
+    // A field of study entered in the search form matches against a school's full
+    // list of fields of study (programs), distinct from the results' popular-program filter.
+    const fieldOfStudy = String(event.detail.fieldOfStudy ?? '').toLocaleLowerCase();
     collegeResults.originState = zipLocation?.state ?? null;
+    // Rank the Relevance sort by this field of study; must be set before `results`.
+    collegeResults.relevanceTerm = fieldOfStudy;
     collegeResults.results = schools
-      // Keep predominantly bachelor's-degree-granting institutions.
-      .filter((school) => Number(school['school.degrees_awarded.predominant']) === 3)
       .map((school) => {
         const lat = Number(school['location.lat']);
         const lon = Number(school['location.lon']);
@@ -71,6 +97,10 @@ searchForm.addEventListener('search', async (/** @type {CustomEvent} */ event) =
         ]);
         return mapSchool(school, distance);
       })
+      .filter(
+        (school) =>
+          !fieldOfStudy || school.academics.programs.some((p) => p.title?.toLocaleLowerCase().includes(fieldOfStudy))
+      )
       .sort((a, b) => a.name.localeCompare(b.name));
   } catch (error) {
     collegeResults.setError(error instanceof Error ? error.message : String(error));

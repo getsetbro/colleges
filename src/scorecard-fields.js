@@ -362,9 +362,9 @@ export const LATEST_ALIAS_NOTE =
  */
 export function label(map, code) {
   const value = clean(code);
-  if (value == null) return 'Not reported';
+  if (value == null) return NOT_REPORTED;
   const key = String(value);
-  return map[key] ?? 'Not reported';
+  return map[key] ?? NOT_REPORTED;
 }
 
 /* ------------------------------------------------------------------ *
@@ -410,7 +410,7 @@ const currencyFormatter = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 0
 });
 
-export const NOT_REPORTED = 'Not reported';
+export const NOT_REPORTED = '-';
 
 /** @param {*} value @returns {string} */
 export function formatCurrency(value) {
@@ -540,6 +540,21 @@ const LATEST_FIELDS = [
   'student.demographics.race_ethnicity.two_or_more',
   'student.demographics.race_ethnicity.non_resident_alien',
   'student.demographics.race_ethnicity.unknown',
+  // Faculty
+  'school.faculty_salary',
+  'school.ft_faculty_rate',
+  'student.demographics.student_faculty_ratio',
+  'student.demographics.faculty.men',
+  'student.demographics.faculty.women',
+  'student.demographics.faculty.race_ethnicity.white',
+  'student.demographics.faculty.race_ethnicity.black',
+  'student.demographics.faculty.race_ethnicity.hispanic',
+  'student.demographics.faculty.race_ethnicity.asian',
+  'student.demographics.faculty.race_ethnicity.aian',
+  'student.demographics.faculty.race_ethnicity.nhpi',
+  'student.demographics.faculty.race_ethnicity.two_or_more',
+  'student.demographics.faculty.race_ethnicity.non_resident_alien',
+  'student.demographics.faculty.race_ethnicity.unknown',
   // Retention (lives under student, not completion)
   'student.retention_rate.four_year.full_time',
   'student.retention_rate.lt_four_year.full_time',
@@ -562,6 +577,10 @@ const LATEST_FIELDS = [
   'cost.tuition.out_of_state',
   'cost.attendance.academic_year',
   'cost.roomboard.oncampus',
+  'cost.roomboard.offcampus',
+  'cost.otherexpense.oncampus',
+  'cost.otherexpense.offcampus',
+  'cost.otherexpense.withfamily',
   'cost.booksupply',
   'cost.avg_net_price.public',
   'cost.avg_net_price.private',
@@ -748,6 +767,24 @@ export function mapSchool(raw, distance = null) {
         unknown: num(get(raw, 'latest.student.demographics.race_ethnicity.unknown'))
       }
     },
+    faculty: {
+      studentRatio: num(get(raw, 'latest.student.demographics.student_faculty_ratio')),
+      salaryMonthly: num(get(raw, 'latest.school.faculty_salary')),
+      fullTimeRate: num(get(raw, 'latest.school.ft_faculty_rate')),
+      demographics: {
+        men: num(get(raw, 'latest.student.demographics.faculty.men')),
+        women: num(get(raw, 'latest.student.demographics.faculty.women')),
+        white: num(get(raw, 'latest.student.demographics.faculty.race_ethnicity.white')),
+        black: num(get(raw, 'latest.student.demographics.faculty.race_ethnicity.black')),
+        hispanic: num(get(raw, 'latest.student.demographics.faculty.race_ethnicity.hispanic')),
+        asian: num(get(raw, 'latest.student.demographics.faculty.race_ethnicity.asian')),
+        aian: num(get(raw, 'latest.student.demographics.faculty.race_ethnicity.aian')),
+        nhpi: num(get(raw, 'latest.student.demographics.faculty.race_ethnicity.nhpi')),
+        twoOrMore: num(get(raw, 'latest.student.demographics.faculty.race_ethnicity.two_or_more')),
+        nonResidentAlien: num(get(raw, 'latest.student.demographics.faculty.race_ethnicity.non_resident_alien')),
+        unknown: num(get(raw, 'latest.student.demographics.faculty.race_ethnicity.unknown'))
+      }
+    },
     admissions: {
       admissionRate: num(get(raw, 'latest.admissions.admission_rate.overall')),
       admissionRateOpe: num(get(raw, 'latest.admissions.admission_rate.by_ope_id')),
@@ -772,6 +809,10 @@ export function mapSchool(raw, distance = null) {
       tuitionOutOfState: num(get(raw, 'latest.cost.tuition.out_of_state')),
       attendanceAcademicYear: num(get(raw, 'latest.cost.attendance.academic_year')),
       roomBoardOnCampus: num(get(raw, 'latest.cost.roomboard.oncampus')),
+      roomBoardOffCampus: num(get(raw, 'latest.cost.roomboard.offcampus')),
+      otherExpenseOnCampus: num(get(raw, 'latest.cost.otherexpense.oncampus')),
+      otherExpenseOffCampus: num(get(raw, 'latest.cost.otherexpense.offcampus')),
+      otherExpenseWithFamily: num(get(raw, 'latest.cost.otherexpense.withfamily')),
       bookSupply: num(get(raw, 'latest.cost.booksupply')),
       netPricePublic,
       netPricePrivate,

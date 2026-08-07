@@ -19,7 +19,6 @@ import {
   formatRange,
   formatCoordinate,
   formatMiles,
-  programFamilyKey,
   NOT_REPORTED
 } from './scorecard-fields.js';
 
@@ -27,6 +26,35 @@ import {
 
 const DIRECTIONS_ORIGIN = '45036';
 const MAX_PROGRAM_ROWS = 15;
+// localStorage key for the user's per-section collapse/expand choices.
+const SECTION_STATE_KEY = 'college-section-states';
+// Shared with search-form.js: the user's last-used ZIP.
+const LAST_ZIP_KEY = 'college-last-zip';
+
+/** @returns {string|null} the stored last-used ZIP, if a valid 5-digit one exists */
+function storedZip() {
+  try {
+    const zip = localStorage.getItem(LAST_ZIP_KEY);
+    return zip && /^\d{5}$/.test(zip) ? zip : null;
+  } catch {
+    return null;
+  }
+}
+
+// Predominant-degree filter options: "Any" plus each coded degree, defaulting to
+// bachelor's (code 3). Empty value means no degree restriction.
+const PREDOMINANT_FILTER_OPTIONS =
+  '<option value="">Any predominant degree</option>' +
+  Object.entries(PREDOMINANT_DEGREE)
+    .map(([code, name]) => `<option value="${code}"${code === '3' ? ' selected' : ''}>${name}</option>`)
+    .join('');
+
+/** Stable data-section key for a detail group, derived from its title. @param {string} title @returns {string} */
+const sectionKey = (title) =>
+  title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
 
 /** @param {*} value @returns {string} */
 const escapeHtml = (value) =>
@@ -37,43 +65,56 @@ const escapeHtml = (value) =>
 
 const ownershipLabel = (code) => label(OWNERSHIP, code);
 
-/** @param {MappedSchool} school @returns {string} */
-function directionsUrl(school) {
+/** @param {MappedSchool} school @returns {string} a lat,lon pair or a human-readable address */
+function directionsDestination(school) {
   const { lat, lon, city, state, zip } = school.location;
-  const destination =
-    lat != null && lon != null ? `${lat},${lon}` : `${school.name}, ${city ?? ''}, ${state ?? ''} ${zip ?? ''}`;
-  return `https://www.google.com/maps/dir/?${new URLSearchParams({ api: '1', origin: DIRECTIONS_ORIGIN, destination, travelmode: 'driving' })}`;
+  return lat != null && lon != null ? `${lat},${lon}` : `${school.name}, ${city ?? ''}, ${state ?? ''} ${zip ?? ''}`;
+}
+
+/** @param {string} destination @param {string} origin @returns {string} */
+function directionsUrl(destination, origin) {
+  return `https://www.google.com/maps/dir/?${new URLSearchParams({ api: '1', origin, destination, travelmode: 'driving' })}`;
 }
 
 /**
- * Render a labelled section. `items` are [label, value] pairs; a value may be
- * `{ html }` to inject already-safe markup (links, ranges) instead of escaped text.
- * When `collapsible` is set, only the title shows until the user clicks to reveal
- * the rows (native <details> disclosure).
+ * Render a labelled section as a native <details> disclosure. `items` are
+ * [label, value] pairs; a value may be `{ html }` to inject already-safe markup
+ * (links, ranges) instead of escaped text. Collapsed by default; the user's
+ * choice is persisted and re-applied per section (see #applyStoredSectionStates).
  * @param {string} title
  * @param {Array<[string, string | { html: string }]>} items
  * @param {string} [source]
- * @param {{ collapsible?: boolean }} [options]
+ * @param {boolean} [sorted] when true (default), rows are ordered alphabetically by label
  * @returns {string}
  */
-function detailGroup(title, items, source, options = {}) {
-  const rows = items
+function detailGroup(title, items, source, sorted = true) {
+  const ordered = sorted ? items.slice().sort(([a], [b]) => a.localeCompare(b)) : items;
+  const rows = ordered
     .map(([itemLabel, value]) => {
       const dd = typeof value === 'object' ? value.html : escapeHtml(value);
       return `<div><dt>${escapeHtml(itemLabel)}</dt><dd>${dd}</dd></div>`;
     })
     .join('');
   const caption = source ? `<p class="detail-source">Source: ${escapeHtml(source)}</p>` : '';
-  if (options.collapsible) {
-    return `<details class="detail-group detail-group-collapsible"><summary><h4>${escapeHtml(title)}</h4></summary><dl>${rows}</dl>${caption}</details>`;
-  }
-  return `<section class="detail-group"><h4>${escapeHtml(title)}</h4><dl>${rows}</dl>${caption}</section>`;
+  return `<details class="detail-group detail-group-collapsible" data-section="${sectionKey(title)}"><summary><h4>${escapeHtml(title)}</h4></summary><dl>${rows}</dl>${caption}</details>`;
 }
 
 /** @param {string|undefined} url @param {string} text @returns {{ html: string }} */
 function linkValue(url, text) {
   if (!url) return { html: escapeHtml(NOT_REPORTED) };
   return { html: `<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer">${escapeHtml(text)} ↗</a>` };
+}
+
+/**
+ * Pull the residential descriptor out of a Carnegie size & setting label (only
+ * four-year size-settings carry one). @param {string} sizeSetting @returns {string}
+ */
+function residentialCharacter(sizeSetting) {
+  const l = sizeSetting.toLowerCase();
+  if (l.includes('highly residential')) return 'Highly residential';
+  if (l.includes('nonresidential')) return 'Primarily nonresidential';
+  if (l.includes('residential')) return 'Primarily residential';
+  return NOT_REPORTED;
 }
 
 /** @param {MappedSchool} school @returns {string} */
@@ -88,6 +129,7 @@ function profileGroup(school) {
       ['Carnegie classification', label(CARNEGIE_BASIC, p.carnegieBasic)],
       ['Undergraduate profile', label(CARNEGIE_UNDERGRAD, p.carnegieUndergrad)],
       ['Size & setting', label(CARNEGIE_SIZE_SETTING, p.carnegieSizeSetting)],
+      ['Residential character', residentialCharacter(label(CARNEGIE_SIZE_SETTING, p.carnegieSizeSetting))],
       ['Main campus', p.mainCampus === 1 ? 'Yes' : p.mainCampus === 0 ? 'No (branch)' : NOT_REPORTED],
       ['Branch campuses', formatCount(p.branches, { zeroOk: true })],
       ['Religious affiliation', label(RELIGIOUS_AFFILIATION, p.religiousAffiliation)],
@@ -138,7 +180,38 @@ function enrollmentGroup(school) {
       ['Non-resident', formatPercent(d.nonResidentAlien)],
       ['Race/ethnicity unknown', formatPercent(d.unknown)]
     ],
-    'IPEDS'
+    'IPEDS',
+    false
+  );
+}
+
+/** @param {MappedSchool} school @returns {string} */
+function facultyGroup(school) {
+  const f = school.faculty;
+  const d = f.demographics;
+  const index = diversityIndex(d);
+  return detailGroup(
+    'Faculty',
+    [
+      ['Students per faculty member', f.studentRatio == null ? NOT_REPORTED : `${Math.round(f.studentRatio)}:1`],
+      ['Average faculty salary (monthly)', formatCurrency(f.salaryMonthly)],
+      ['Faculty that are full-time', formatPercent(f.fullTimeRate)],
+      ['Part-time/adjunct (approx.)', formatPercent(f.fullTimeRate == null ? null : 1 - f.fullTimeRate)],
+      ['Faculty diversity', index == null ? NOT_REPORTED : `${ratingLabel(index)} (${Math.round(index * 100)}%)`],
+      ['Men', formatPercent(d.men)],
+      ['Women', formatPercent(d.women)],
+      ['White', formatPercent(d.white)],
+      ['Black', formatPercent(d.black)],
+      ['Hispanic', formatPercent(d.hispanic)],
+      ['Asian', formatPercent(d.asian)],
+      ['American Indian/Alaska Native', formatPercent(d.aian)],
+      ['Native Hawaiian/Pacific Islander', formatPercent(d.nhpi)],
+      ['Two or more races', formatPercent(d.twoOrMore)],
+      ['Non-resident', formatPercent(d.nonResidentAlien)],
+      ['Race/ethnicity unknown', formatPercent(d.unknown)]
+    ],
+    'IPEDS Human Resources; full-time nonmedical instructional staff',
+    false
   );
 }
 
@@ -176,6 +249,10 @@ function costGroup(school) {
       ['Out-of-state tuition & fees', formatCurrency(c.tuitionOutOfState)],
       ['Total cost of attendance (year)', formatCurrency(c.attendanceAcademicYear)],
       ['On-campus room & board', formatCurrency(c.roomBoardOnCampus)],
+      ['Off-campus room & board', formatCurrency(c.roomBoardOffCampus)],
+      ['On-campus other expenses', formatCurrency(c.otherExpenseOnCampus)],
+      ['Off-campus other expenses', formatCurrency(c.otherExpenseOffCampus)],
+      ['Other expenses (with family)', formatCurrency(c.otherExpenseWithFamily)],
       ['Books & supplies', formatCurrency(c.bookSupply)],
       ['Average net price', formatCurrency(c.netPriceOverall)],
       ['Net price · income $0–30K', bracket('0-30000')],
@@ -213,27 +290,45 @@ function outcomesGroup(school) {
       ['Default rate (2 yr cohort)', formatPercent(o.defaultRate2yr)],
       ['Default rate (3 yr cohort)', formatPercent(o.defaultRate3yr)]
     ],
-    'IPEDS; earnings from U.S. Treasury; repayment from NSLDS; default rates from Federal Student Aid',
-    { collapsible: true }
+    'IPEDS; earnings from U.S. Treasury; repayment from NSLDS; default rates from Federal Student Aid'
   );
 }
 
-/** @param {MappedSchool} school @returns {string} */
-function academicsGroup(school) {
-  const top = school.academics.topPrograms.slice(0, 6);
-  const items = top.length
-    ? /** @type {Array<[string, string | { html: string }]>} */ (
-        top.map((program) => [program.label, formatPercent(program.share)])
-      )
-    : /** @type {Array<[string, string | { html: string }]>} */ ([['Popular programs', NOT_REPORTED]]);
-  return detailGroup('Popular programs (share of degrees)', items, 'IPEDS');
+// Which CREDENTIAL_LEVEL codes the fields-of-study table shows for each selected
+// predominant degree. Selections not listed (Any, Not classified) show every level.
+/** @type {Record<string, number[]>} */
+const PREDOMINANT_TO_CREDENTIALS = {
+  1: [1], // Predominantly certificates → undergraduate certificate/diploma
+  2: [2], // Predominantly associate's → associate's degree
+  3: [3], // Predominantly bachelor's → bachelor's degree
+  4: [4, 5, 6, 7, 8] // Entirely graduate → post-bacc cert, master's, doctoral, first professional, grad cert
+};
+
+/**
+ * Eligible fields of study, each annotated with its share of the school's total
+ * awards. `allowedCredentials` (a Set of CREDENTIAL_LEVEL codes, or null for all)
+ * limits which credential levels are counted and shown; shares are relative to
+ * that set. Shared by the table display and the Relevance sort so they agree.
+ * @param {MappedSchool} school
+ * @param {Set<number>|null} [allowedCredentials]
+ */
+function programsWithShare(school, allowedCredentials = null) {
+  const eligible = school.academics.programs.filter(
+    (program) => !allowedCredentials || allowedCredentials.has(Number(program.credentialLevel))
+  );
+  const totalAwards = eligible.reduce((sum, program) => sum + (program.awards ?? 0), 0);
+  return eligible.map((program) => ({
+    ...program,
+    share: program.awards != null && totalAwards > 0 ? program.awards / totalAwards : null
+  }));
 }
 
-/** @param {MappedSchool} school @returns {string} */
-function programsTable(school) {
-  const programs = school.academics.programs
-    .slice()
-    .sort((a, b) => String(a.title ?? '').localeCompare(String(b.title ?? '')));
+/** @param {MappedSchool} school @param {Set<number>|null} allowedCredentials @returns {string} */
+function programsTable(school, allowedCredentials) {
+  // Sorted by share so the biggest programs lead.
+  const programs = programsWithShare(school, allowedCredentials).sort(
+    (a, b) => compareNullable(a.share, b.share, -1) || String(a.title ?? '').localeCompare(String(b.title ?? ''))
+  );
   if (!programs.length) return '';
   const total = programs.length;
   // Rows past the cap are rendered but hidden until the user expands (CSS toggle).
@@ -244,7 +339,7 @@ function programsTable(school) {
           ? String(program.credentialTitle)
           : label(CREDENTIAL_LEVEL, program.credentialLevel);
       const overflow = index >= MAX_PROGRAM_ROWS ? ' class="program-overflow"' : '';
-      return `<tr${overflow}><td>${escapeHtml(program.title ?? NOT_REPORTED)}</td><td>${escapeHtml(credential)}</td><td>${escapeHtml(formatCount(program.awards, { zeroOk: true }))}</td><td>${escapeHtml(formatCurrency(program.earnings1yr))}</td><td>${escapeHtml(formatCurrency(program.medianDebt))}</td></tr>`;
+      return `<tr${overflow}><td>${escapeHtml(program.title ?? NOT_REPORTED)}</td><td>${escapeHtml(credential)}</td><td>${escapeHtml(program.share == null ? NOT_REPORTED : formatPercent(program.share))}</td><td>${escapeHtml(formatCount(program.awards, { zeroOk: true }))}</td></tr>`;
     })
     .join('');
   let checkbox = '';
@@ -254,7 +349,7 @@ function programsTable(school) {
     checkbox = `<input type="checkbox" id="${toggleId}" class="program-toggle" hidden />`;
     toggleLabels = `<label class="program-toggle-label more" for="${toggleId}">Show all ${total} fields of study →</label><label class="program-toggle-label less" for="${toggleId}">Show fewer ↑</label>`;
   }
-  return `<section class="detail-group program-table"><h4>Fields of study</h4>${checkbox}<table><thead><tr><th>Program</th><th>Credential</th><th>Awards</th><th>Median earnings (1 yr)</th><th>Median debt</th></tr></thead><tbody>${rows}</tbody></table>${toggleLabels}<p class="detail-source">Sorted alphabetically. Source: IPEDS; program earnings &amp; debt from U.S. Treasury &amp; NSLDS</p></section>`;
+  return `<details class="detail-group detail-group-collapsible program-table" data-section="fields-of-study" open><summary><h4>Fields of study</h4></summary>${checkbox}<table><thead><tr><th>Program</th><th>Credential</th><th>% of degrees</th><th>Awards</th></tr></thead><tbody>${rows}</tbody></table>${toggleLabels}<p class="detail-source">Sorted by share of degrees. Source: IPEDS</p></details>`;
 }
 
 function compareNullable(a, b, direction = 1) {
@@ -264,46 +359,213 @@ function compareNullable(a, b, direction = 1) {
   return (a - b) * direction;
 }
 
+/**
+ * Simpson diversity index (0–1) over reported race/ethnicity shares: the
+ * probability that two randomly chosen members are from different groups. Shares
+ * are normalized over the reported groups (unknown race excluded). Null when the
+ * data is too sparse to rate. Works for either student or faculty demographics.
+ * @param {MappedSchool['enrollment']['demographics']} demographics
+ * @returns {number|null}
+ */
+function diversityIndex(demographics) {
+  const d = demographics;
+  const shares = [d.white, d.black, d.hispanic, d.asian, d.aian, d.nhpi, d.twoOrMore, d.nonResidentAlien].filter(
+    (share) => typeof share === 'number'
+  );
+  const total = shares.reduce((sum, share) => sum + share, 0);
+  // Need the reported groups to cover most of the population to be meaningful.
+  if (shares.length < 2 || total < 0.5) return null;
+  return 1 - shares.reduce((sum, share) => sum + (share / total) ** 2, 0);
+}
+
+/** @param {number} value 0–1 score @returns {string} High/Mid/Low label */
+function ratingLabel(value) {
+  if (value >= 0.6) return 'High';
+  if (value >= 0.4) return 'Mid';
+  return 'Low';
+}
+
+/** @param {number} rate 0–1 full-time faculty rate @returns {string} High/Mid/Low label */
+function ftFacultyRating(rate) {
+  if (rate >= 0.8) return 'High';
+  if (rate >= 0.6) return 'Mid';
+  return 'Low';
+}
+
+/** @param {MappedSchool} school @returns {string} High/Mid/Low; a missing score counts as Low */
+function diversityRating(school) {
+  const index = diversityIndex(school.enrollment.demographics);
+  return index == null ? 'Low' : ratingLabel(index);
+}
+
+/** @param {MappedSchool} school @returns {string} a diversity tile for the result card */
+function diversityTile(school) {
+  const index = diversityIndex(school.enrollment.demographics);
+  const title =
+    index == null
+      ? 'No race/ethnicity data reported — treated as low diversity'
+      : `Diversity index ${Math.round(index * 100)}% — chance two random students differ in race/ethnicity`;
+  return `<div class="diversity" title="${escapeHtml(title)}"><strong>${escapeHtml(diversityRating(school))}</strong><span>diversity</span></div>`;
+}
+
+/** @param {MappedSchool} school @returns {string} a residential-character tile for the result card */
+function residentialTile(school) {
+  const descriptor = residentialCharacter(label(CARNEGIE_SIZE_SETTING, school.profile.carnegieSizeSetting));
+  const short = { 'Highly residential': 'High', 'Primarily residential': 'Mid', 'Primarily nonresidential': 'Non' }[
+    descriptor
+  ];
+  if (!short) return `<div class="residential"><strong>${escapeHtml(NOT_REPORTED)}</strong><span>residential</span></div>`;
+  return `<div class="residential" title="${escapeHtml(descriptor)}"><strong>${escapeHtml(short)}</strong><span>residential</span></div>`;
+}
+
+/** @param {MappedSchool} school @returns {string} a student-to-faculty ratio tile for the result card */
+function facultyRatioTile(school) {
+  const ratio = school.faculty.studentRatio;
+  if (ratio == null) return `<div class="faculty-ratio"><strong>${escapeHtml(NOT_REPORTED)}</strong><span>teacher</span></div>`;
+  return `<div class="faculty-ratio" title="Undergraduate students per faculty member"><strong>1:${Math.round(ratio)}</strong><span>teacher</span></div>`;
+}
+
+/** @param {MappedSchool} school @returns {string} a full-time faculty tile for the result card */
+function facultyFtTile(school) {
+  const rate = school.faculty.fullTimeRate;
+  if (rate == null) return `<div class="faculty-ft"><strong>${escapeHtml(NOT_REPORTED)}</strong><span>FT faculty</span></div>`;
+  return `<div class="faculty-ft" title="Share of faculty employed full-time"><strong>${Math.round(rate * 100)}%</strong><span>FT faculty</span></div>`;
+}
+
 class CollegeResults extends HTMLElement {
   /** @type {MappedSchool[]} */
   #allResults = [];
   /** @type {MappedSchool[]} */
   #currentResults = [];
-  /** @type {string|null} state abbreviation of the searched ZIP; schools elsewhere render as out-of-state */
+  /** @type {string|null} state abbreviation of the searched ZIP; schools in it render highlighted (in-state) */
   #originState = null;
+  /** @type {boolean} hide the distance badge and distance sort (e.g. for name searches with no origin) */
+  #hideDistance = false;
+  /** @type {string} field-of-study term from the search, used to rank the Relevance sort */
+  #relevanceTerm = '';
+  /** @type {Set<string>} upper-cased state abbreviations to exclude from the results */
+  #excludedStates = new Set();
 
   connectedCallback() {
     this.innerHTML = `
       <section class="results-section" aria-labelledby="results-title">
-        <div class="section-heading results-heading"><div><span class="step">02</span><h2 id="results-title">Results</h2></div><button class="secondary export-button" type="button" hidden>Export CSV</button></div>
+        <div class="section-heading results-heading"><div><span class="step">02</span><h2 id="results-title">Results</h2></div><div class="results-actions"><button class="secondary print-button" type="button" hidden>Print</button><button class="secondary export-button" type="button" hidden>Export CSV</button></div></div>
         <div class="status">Set your criteria and run a search.</div>
         <form class="result-controls" hidden>
-          <label>Filter results<input class="result-query" type="search" placeholder="School, city, or state" autocomplete="off" /></label>
-          <label>Field of study<input class="program-filter" type="search" placeholder="e.g. Nursing, Computer Science" autocomplete="off" /></label>
-          <label>Sort by<select class="result-sort"><option value="relevance" hidden>Relevance</option><option value="name-asc" selected>Name: A–Z</option><option value="distance-asc">Distance: nearest first</option><option value="enrollment-asc">Enrollment: low to high</option><option value="enrollment-desc">Enrollment: high to low</option><option value="net-price-asc">Net price: low to high</option><option value="admission-rate-desc">Admission rate: high to low</option></select></label>
+          <label>Filter results<input class="result-query" type="search" placeholder="School or city" autocomplete="off" /></label>
+          <label>Predominant degree<select class="predominant-filter">${PREDOMINANT_FILTER_OPTIONS}</select></label>
+          <label>Sort by<select class="result-sort"><option value="relevance" selected>Relevance</option><option value="distance-asc">Distance: nearest first</option><option value="name-asc">Name: A–Z</option><option value="enrollment-asc">Enrollment: low to high</option><option value="enrollment-desc">Enrollment: high to low</option><option value="net-price-asc">Net price: low to high</option><option value="admission-rate-desc">Admission rate: high to low</option></select></label>
           <button class="secondary clear-filters" type="button">Reset</button>
+          <div class="attr-exclude">
+            <span class="attr-exclude-label">Hide</span>
+            <label class="attr-chip"><input type="checkbox" class="hide-nonresidential" checked />Non-residential</label>
+            <label class="attr-chip"><input type="checkbox" class="hide-low-diversity" checked />Low diversity</label>
+            <label class="attr-chip"><input type="checkbox" class="hide-low-ft" checked />Low FT faculty</label>
+          </div>
         </form>
+        <div class="state-exclude" hidden></div>
         <div class="results-grid" aria-live="polite"></div>
       </section>`;
     const controls = /** @type {HTMLFormElement} */ (this.querySelector('.result-controls'));
     controls.addEventListener('submit', (event) => event.preventDefault());
-    // Entering a field of study switches sorting to Relevance (popular-program
-    // matches first); clearing it drops back to Name. Runs in the target phase,
-    // before the form-level input handler below re-filters, so #update() sees it.
-    this.querySelector('.program-filter')?.addEventListener('input', (event) => {
-      const sort = /** @type {HTMLSelectElement} */ (this.querySelector('.result-sort'));
-      const relevance = /** @type {HTMLOptionElement} */ (sort.querySelector('option[value="relevance"]'));
-      const hasProgram = Boolean(/** @type {HTMLInputElement} */ (event.currentTarget).value.trim());
-      relevance.hidden = !hasProgram;
-      if (hasProgram) sort.value = 'relevance';
-      else if (sort.value === 'relevance') sort.value = 'name-asc';
-    });
     controls.addEventListener('input', () => this.#update());
+    // Exclude-states checkboxes live outside the controls form.
+    this.querySelector('.state-exclude')?.addEventListener('change', () => {
+      const checked = this.querySelectorAll('.state-exclude input:checked');
+      this.#excludedStates = new Set([...checked].map((box) => /** @type {HTMLInputElement} */ (box).value));
+      this.#update();
+    });
     this.querySelector('.clear-filters')?.addEventListener('click', () => {
       this.#resetControls();
       this.#update();
     });
     this.querySelector('.export-button')?.addEventListener('click', () => this.#export());
+    this.querySelector('.print-button')?.addEventListener('click', () => window.print());
+    // Directions links have no origin on a name search; prompt for a ZIP on click.
+    this.#grid().addEventListener('click', (event) => this.#handleDirectionsClick(event));
+    // Persist each section's collapse/expand choice. `toggle` doesn't bubble, so
+    // listen in the capture phase to catch it from any card's <details>.
+    this.#grid().addEventListener('toggle', (event) => this.#handleSectionToggle(event), true);
+  }
+
+  /**
+   * When a detail section is toggled, remember the choice and mirror it onto the
+   * same section in every other result card.
+   * @param {Event} event
+   */
+  #handleSectionToggle(event) {
+    const details = event.target;
+    if (!(details instanceof HTMLDetailsElement) || !details.dataset.section) return;
+    const section = details.dataset.section;
+    const open = details.open;
+    const states = this.#sectionStates();
+    if (states[section] === open) return; // already in sync (e.g. programmatic set) — avoid re-work
+    states[section] = open;
+    this.#saveSectionStates(states);
+    this.#grid()
+      .querySelectorAll(`details[data-section="${section}"]`)
+      .forEach((el) => {
+        const other = /** @type {HTMLDetailsElement} */ (el);
+        if (other !== details && other.open !== open) other.open = open;
+      });
+  }
+
+  /** @returns {Record<string, boolean>} */
+  #sectionStates() {
+    try {
+      return JSON.parse(localStorage.getItem(SECTION_STATE_KEY) ?? '{}') ?? {};
+    } catch {
+      return {};
+    }
+  }
+
+  /** @param {Record<string, boolean>} states */
+  #saveSectionStates(states) {
+    try {
+      localStorage.setItem(SECTION_STATE_KEY, JSON.stringify(states));
+    } catch {
+      // Storage unavailable (private mode / quota) — the choice just won't persist.
+    }
+  }
+
+  /** Override each rendered section's default open state with the user's stored choice. */
+  #applyStoredSectionStates() {
+    const states = this.#sectionStates();
+    this.#grid()
+      .querySelectorAll('details[data-section]')
+      .forEach((el) => {
+        const details = /** @type {HTMLDetailsElement} */ (el);
+        const key = details.dataset.section;
+        if (key && key in states) details.open = states[key];
+      });
+  }
+
+  /** @param {MouseEvent} event */
+  #handleDirectionsClick(event) {
+    const link = /** @type {HTMLElement} */ (event.target).closest('.directions-link');
+    if (!(link instanceof HTMLElement)) return;
+    event.preventDefault();
+    // Reuse the user's stored ZIP; only prompt when there is none saved.
+    const origin = storedZip() ?? this.#promptForOrigin();
+    if (!origin) return;
+    window.open(directionsUrl(link.dataset.destination ?? '', origin), '_blank', 'noopener');
+  }
+
+  /** Ask for a 5-digit ZIP to route directions from, saving it for next time. @returns {string|null} */
+  #promptForOrigin() {
+    const zip = window.prompt('Enter your ZIP code to get directions from:');
+    if (zip == null) return null;
+    const trimmed = zip.trim();
+    if (!/^\d{5}$/.test(trimmed)) {
+      window.alert('Please enter a valid 5-digit ZIP code.');
+      return null;
+    }
+    try {
+      localStorage.setItem(LAST_ZIP_KEY, trimmed);
+    } catch {
+      // localStorage unavailable — the ZIP just won't persist.
+    }
+    return trimmed;
   }
 
   set loading(value) {
@@ -313,7 +575,9 @@ class CollegeResults extends HTMLElement {
     status.textContent = 'Querying College Scorecard…';
     this.#grid().innerHTML = '';
     this.#controls().hidden = true;
+    /** @type {HTMLElement} */ (this.querySelector('.state-exclude')).hidden = true;
     this.#exportButton().hidden = true;
+    this.#printButton().hidden = true;
   }
 
   /** @param {string|null} value state abbreviation of the searched ZIP */
@@ -321,19 +585,128 @@ class CollegeResults extends HTMLElement {
     this.#originState = value ? value.toUpperCase() : null;
   }
 
+  /** @param {boolean} value when true, omit the per-card distance badge and the distance/relevance sorts */
+  set hideDistance(value) {
+    this.#hideDistance = Boolean(value);
+    const sort = /** @type {HTMLSelectElement} */ (this.querySelector('.result-sort'));
+    // Relevance (ranks by field of study + distance) and Distance both need an
+    // origin/search term the name-search page lacks — hide them and fall back to name.
+    for (const value of ['relevance', 'distance-asc']) {
+      const option = /** @type {HTMLOptionElement|null} */ (sort.querySelector(`option[value="${value}"]`));
+      if (option) option.hidden = this.#hideDistance;
+    }
+    if (this.#hideDistance && (sort.value === 'relevance' || sort.value === 'distance-asc')) sort.value = 'name-asc';
+    // A name search matches regardless of degree type, so default to no restriction.
+    if (this.#hideDistance) {
+      const predominant = /** @type {HTMLSelectElement|null} */ (this.querySelector('.predominant-filter'));
+      if (predominant) predominant.value = '';
+    }
+  }
+
+  /**
+   * Field-of-study term from the search; the Relevance sort ranks schools by their
+   * highest matching-program share. Set before `results` so the first sort sees it.
+   * @param {string} value
+   */
+  set relevanceTerm(value) {
+    this.#relevanceTerm = String(value ?? '')
+      .trim()
+      .toLocaleLowerCase();
+  }
+
+  /**
+   * Credential levels the fields-of-study table shows, based on the predominant
+   * degree filter. Null means show every level (e.g. "Any predominant degree").
+   * @returns {Set<number>|null}
+   */
+  #allowedCredentials() {
+    const predominant = /** @type {HTMLSelectElement} */ (this.querySelector('.predominant-filter')).value;
+    const levels = PREDOMINANT_TO_CREDENTIALS[predominant];
+    return levels ? new Set(levels) : null;
+  }
+
+  /**
+   * Largest share of degrees among a school's programs whose title contains the
+   * searched field-of-study term. Null when there's no term or no matching program.
+   * @param {MappedSchool} school
+   * @param {Set<number>|null} allowedCredentials
+   * @returns {number|null}
+   */
+  #fieldShare(school, allowedCredentials) {
+    if (!this.#relevanceTerm) return null;
+    let max = -1;
+    for (const program of programsWithShare(school, allowedCredentials)) {
+      if (program.title?.toLocaleLowerCase().includes(this.#relevanceTerm)) max = Math.max(max, program.share ?? 0);
+    }
+    return max < 0 ? null : max;
+  }
+
+  /**
+   * Relevance score for sorting: the field-of-study share, or -1 when absent so
+   * such schools sort last and the sort falls through to distance.
+   * @param {MappedSchool} school
+   * @param {Set<number>|null} allowedCredentials
+   * @returns {number}
+   */
+  #relevanceScore(school, allowedCredentials) {
+    return this.#fieldShare(school, allowedCredentials) ?? -1;
+  }
+
+  /**
+   * Tile showing the searched field of study's share of a school's degrees; empty
+   * string when no field of study was searched (e.g. the name-search page).
+   * @param {MappedSchool} school
+   * @param {Set<number>|null} allowedCredentials
+   * @returns {string}
+   */
+  #fieldShareTile(school, allowedCredentials) {
+    const term = this.#relevanceTerm;
+    if (!term) return '';
+    const share = this.#fieldShare(school, allowedCredentials);
+    const value = share == null ? NOT_REPORTED : `${Math.round(share * 100)}%`;
+    const displayTerm = term.charAt(0).toUpperCase() + term.slice(1);
+    return `<div class="field-share" title="Share of degrees in ${escapeHtml(term)}"><strong>${escapeHtml(value)}</strong><span>${escapeHtml(displayTerm)}</span></div>`;
+  }
+
   /** @param {MappedSchool[]} value */
   set results(value) {
     this.#allResults = [...value];
     this.#resetControls();
+    this.#renderStateChips();
     this.#controls().hidden = value.length === 0;
     this.#update();
   }
 
-  /** Reset filter/sort controls to their defaults and re-hide the Relevance sort. */
+  /** Reset filter/sort controls to their defaults. */
   #resetControls() {
     this.#controls().reset();
-    const relevance = /** @type {HTMLOptionElement|null} */ (this.querySelector('.result-sort option[value="relevance"]'));
-    if (relevance) relevance.hidden = true;
+    this.#excludedStates = new Set();
+    this.querySelectorAll('.state-exclude input').forEach((box) => (/** @type {HTMLInputElement} */ (box).checked = false));
+    // On the name-search page, relevance/distance sorts and degree restrictions don't apply.
+    if (this.#hideDistance) {
+      const sort = /** @type {HTMLSelectElement} */ (this.querySelector('.result-sort'));
+      if (sort.value === 'relevance' || sort.value === 'distance-asc') sort.value = 'name-asc';
+      /** @type {HTMLSelectElement} */ (this.querySelector('.predominant-filter')).value = '';
+    }
+  }
+
+  /** Build one "exclude" checkbox per state present in the results (hidden when only one). */
+  #renderStateChips() {
+    const container = /** @type {HTMLElement} */ (this.querySelector('.state-exclude'));
+    const states = [
+      ...new Set(this.#allResults.map((school) => school.location.state).filter(Boolean).map((s) => String(s).toUpperCase()))
+    ].sort();
+    if (states.length <= 1) {
+      container.hidden = true;
+      container.innerHTML = '';
+      return;
+    }
+    container.hidden = false;
+    container.innerHTML =
+      '<span class="state-exclude-label">Exclude states</span>' +
+      states
+        .map((state) => `<label class="state-chip"><input type="checkbox" value="${escapeHtml(state)}" />${escapeHtml(state)}</label>`)
+        .join('');
   }
 
   /** @param {string} message */
@@ -345,7 +718,9 @@ class CollegeResults extends HTMLElement {
     status.textContent = message;
     this.#grid().innerHTML = '';
     this.#controls().hidden = true;
+    /** @type {HTMLElement} */ (this.querySelector('.state-exclude')).hidden = true;
     this.#exportButton().hidden = true;
+    this.#printButton().hidden = true;
   }
 
   /** @returns {HTMLFormElement} */
@@ -363,13 +738,20 @@ class CollegeResults extends HTMLElement {
     return /** @type {HTMLButtonElement} */ (this.querySelector('.export-button'));
   }
 
+  /** @returns {HTMLButtonElement} */
+  #printButton() {
+    return /** @type {HTMLButtonElement} */ (this.querySelector('.print-button'));
+  }
+
   #update() {
     const query = /** @type {HTMLInputElement} */ (this.querySelector('.result-query')).value
       .trim()
       .toLocaleLowerCase();
-    const program = /** @type {HTMLInputElement} */ (this.querySelector('.program-filter')).value
-      .trim()
-      .toLocaleLowerCase();
+    const predominant = /** @type {HTMLSelectElement} */ (this.querySelector('.predominant-filter')).value;
+    const allowed = this.#allowedCredentials();
+    const hideNonResidential = /** @type {HTMLInputElement} */ (this.querySelector('.hide-nonresidential')).checked;
+    const hideLowDiversity = /** @type {HTMLInputElement} */ (this.querySelector('.hide-low-diversity')).checked;
+    const hideLowFt = /** @type {HTMLInputElement} */ (this.querySelector('.hide-low-ft')).checked;
     const sort = /** @type {HTMLSelectElement} */ (this.querySelector('.result-sort')).value;
     const [field, direction] = sort.split('-');
     /** @type {Record<string, (school: MappedSchool) => number|undefined>} */
@@ -382,21 +764,28 @@ class CollegeResults extends HTMLElement {
     const getter = getters[field];
     const results = this.#allResults
       .filter((school) => {
-        const searchable = [school.name, school.location.city, school.location.state]
-          .filter(Boolean)
-          .join(' ')
-          .toLocaleLowerCase();
+        const searchable = [school.name, school.location.city].filter(Boolean).join(' ').toLocaleLowerCase();
+        const ftRate = school.faculty.fullTimeRate;
+        const isNonResidential =
+          residentialCharacter(label(CARNEGIE_SIZE_SETTING, school.profile.carnegieSizeSetting)) ===
+          'Primarily nonresidential';
         return (
           (!query || searchable.includes(query)) &&
-          (!program || school.academics.programs.some((p) => p.title?.toLocaleLowerCase().includes(program)))
+          (!predominant || Number(school.profile.predominantDegree) === Number(predominant)) &&
+          !this.#excludedStates.has((school.location.state ?? '').toUpperCase()) &&
+          !(hideNonResidential && isNonResidential) &&
+          // A missing diversity score counts as Low (see diversityRating).
+          !(hideLowDiversity && diversityRating(school) === 'Low') &&
+          !(hideLowFt && ftRate != null && ftFacultyRating(ftRate) === 'Low')
         );
       })
       .sort((a, b) => {
-        // Relevance: alphabetical, but schools offering the field as one of their
-        // popular programs rank ahead of those that merely offer it.
+        // Relevance: highest matching-program share for the searched field of study,
+        // then nearest first. With no field of study, it reduces to nearest first.
         if (sort === 'relevance') {
           return (
-            this.#popularProgramRank(a, program) - this.#popularProgramRank(b, program) ||
+            this.#relevanceScore(b, allowed) - this.#relevanceScore(a, allowed) ||
+            compareNullable(a.location.distance, b.location.distance, 1) ||
             a.name.localeCompare(b.name)
           );
         }
@@ -404,24 +793,7 @@ class CollegeResults extends HTMLElement {
           ? a.name.localeCompare(b.name)
           : compareNullable(getter?.(a), getter?.(b), direction === 'desc' ? -1 : 1) || a.name.localeCompare(b.name);
       });
-    this.#render(results);
-  }
-
-  /**
-   * Rank for relevance sorting: 0 when the queried field of study is one of the
-   * school's popular programs (matched CIP program rolls up into a reported
-   * popular-programs family), 1 otherwise.
-   * @param {MappedSchool} school
-   * @param {string} program lowercased field-of-study query
-   * @returns {0 | 1}
-   */
-  #popularProgramRank(school, program) {
-    if (!program) return 1;
-    const popular = new Set(school.academics.topPrograms.map((entry) => entry.key));
-    const isPopular = school.academics.programs.some(
-      (p) => p.title?.toLocaleLowerCase().includes(program) && popular.has(programFamilyKey(p.code))
-    );
-    return isPopular ? 0 : 1;
+    this.#render(results, allowed);
   }
 
   /** @param {MappedSchool} school @returns {boolean} true when the school sits outside the searched ZIP's state */
@@ -429,10 +801,11 @@ class CollegeResults extends HTMLElement {
     return Boolean(this.#originState) && school.location.state?.toUpperCase() !== this.#originState;
   }
 
-  /** @param {MappedSchool[]} results */
-  #render(results) {
+  /** @param {MappedSchool[]} results @param {Set<number>|null} allowedCredentials */
+  #render(results, allowedCredentials) {
     this.#currentResults = results;
     this.#exportButton().hidden = results.length === 0;
+    this.#printButton().hidden = results.length === 0;
     const status = /** @type {HTMLElement} */ (this.querySelector('.status'));
     status.className = 'status';
     status.textContent =
@@ -446,13 +819,17 @@ class CollegeResults extends HTMLElement {
         : '<div class="empty"><strong>No matching colleges found.</strong><span>Try increasing the radius or maximum enrollment.</span></div>';
       return;
     }
-    output.innerHTML = results.map((school, index) => this.#card(school, index)).join('');
+    output.innerHTML = results.map((school, index) => this.#card(school, index, allowedCredentials)).join('');
+    this.#applyStoredSectionStates();
   }
 
-  /** @param {MappedSchool} school @param {number} index @returns {string} */
-  #card(school, index) {
-    const distance = school.location.distance == null ? 'Within radius' : `${Math.round(school.location.distance)} mi`;
-    const locationClass = this.#isOutOfState(school) ? ' out-of-state' : '';
+  /** @param {MappedSchool} school @param {number} index @param {Set<number>|null} allowedCredentials @returns {string} */
+  #card(school, index, allowedCredentials) {
+    const distanceBadge = this.#hideDistance
+      ? ''
+      : `<span>${escapeHtml(school.location.distance == null ? 'Within radius' : `${Math.round(school.location.distance)} mi`)}</span>`;
+    // Highlight in-state schools; out-of-state and name-search cards stay neutral.
+    const locationClass = this.#originState && !this.#isOutOfState(school) ? ' in-state' : '';
     const designationBadges = school.profile.designations
       .map((d) => `<span title="${escapeHtml(d.title)}">${escapeHtml(d.label)}</span>`)
       .join('');
@@ -460,55 +837,64 @@ class CollegeResults extends HTMLElement {
       profileGroup(school),
       locationGroup(school),
       enrollmentGroup(school),
+      facultyGroup(school),
       admissionsGroup(school),
       costGroup(school),
-      academicsGroup(school),
       outcomesGroup(school),
-      programsTable(school)
+      programsTable(school, allowedCredentials)
     ].join('');
-    return `<article class="result-card${locationClass}"><div class="rank">${String(index + 1).padStart(2, '0')}</div><div class="school-info"><div class="badges"><span>${escapeHtml(distance)}</span><span>${escapeHtml(ownershipLabel(school.ownershipCode))}</span>${designationBadges}</div><h3>${escapeHtml(school.name)}</h3><p>${escapeHtml(school.location.city ?? '')}, ${escapeHtml(school.location.state ?? '')}</p></div><div class="enrollment"><strong>${escapeHtml(formatCount(school.enrollment.size))}</strong><span>undergrads</span></div><div class="card-links">${school.profile.website ? `<a href="${escapeHtml(school.profile.website)}" target="_blank" rel="noreferrer">Website ↗</a>` : ''}<a href="${escapeHtml(directionsUrl(school))}" target="_blank" rel="noreferrer">Directions ↗</a></div><details class="school-details"><summary>View all details</summary><div class="detail-grid">${groups}</div><p class="detail-note">${escapeHtml(LATEST_ALIAS_NOTE)}</p></details></article>`;
+    const destination = directionsDestination(school);
+    // With no search origin (name search), defer the origin to a click-time ZIP prompt.
+    const directionsLink = this.#hideDistance
+      ? `<a href="#" class="directions-link" data-destination="${escapeHtml(destination)}">Directions ↗</a>`
+      : `<a href="${escapeHtml(directionsUrl(destination, DIRECTIONS_ORIGIN))}" target="_blank" rel="noreferrer">Directions ↗</a>`;
+    return `<article class="result-card${locationClass}"><div class="rank">${String(index + 1).padStart(2, '0')}</div><div class="school-info"><div class="badges">${distanceBadge}<span>${escapeHtml(ownershipLabel(school.ownershipCode))}</span>${designationBadges}</div><h3>${escapeHtml(school.name)}</h3><p>${escapeHtml(school.location.city ?? '')}, ${escapeHtml(school.location.state ?? '')}</p></div><div class="metrics">${this.#fieldShareTile(school, allowedCredentials)}${diversityTile(school)}<div class="enrollment"><strong>${escapeHtml(formatCount(school.enrollment.size))}</strong><span>undergrads</span></div>${residentialTile(school)}${facultyRatioTile(school)}${facultyFtTile(school)}</div><div class="card-links">${school.profile.website ? `<a href="${escapeHtml(school.profile.website)}" target="_blank" rel="noreferrer">Website ↗</a>` : ''}${directionsLink}</div><details class="school-details"><summary>View all details</summary><div class="detail-grid">${groups}</div><p class="detail-note">${escapeHtml(LATEST_ALIAS_NOTE)}</p></details></article>`;
   }
 
   #export() {
     const quote = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`;
-    const header = [
-      'Institution',
-      'City',
-      'State',
-      'Undergraduates',
-      'Approx. Distance (mi)',
-      'Admission Rate',
-      'In-State Tuition',
-      'Out-of-State Tuition',
-      'Total Cost of Attendance',
-      'Average Net Price',
-      'Pell Grant Rate',
-      'Median Debt',
-      'Completion Rate 4yr',
-      'Retention Rate 4yr',
-      '10-Year Median Earnings',
-      'Website'
+    const term = this.#relevanceTerm;
+    const allowed = this.#allowedCredentials();
+    // Columns mirror the card's school-info and metric tiles.
+    /** @type {Array<[string, (school: MappedSchool) => *]>} */
+    const columns = [
+      ['Institution', (school) => school.name],
+      ['City', (school) => school.location.city],
+      ['State', (school) => school.location.state],
+      ['Distance (mi)', (school) => (school.location.distance == null ? '' : Math.round(school.location.distance))],
+      ['Ownership', (school) => ownershipLabel(school.ownershipCode)],
+      ...(term
+        ? /** @type {Array<[string, (school: MappedSchool) => *]>} */ ([
+            [
+              `${term} (% of degrees)`,
+              (school) => {
+                const share = this.#fieldShare(school, allowed);
+                return share == null ? '' : Math.round(share * 100);
+              }
+            ]
+          ])
+        : []),
+      ['Diversity', (school) => diversityRating(school)],
+      ['Undergraduates', (school) => school.enrollment.size],
+      [
+        'Residential character',
+        (school) => {
+          const descriptor = residentialCharacter(label(CARNEGIE_SIZE_SETTING, school.profile.carnegieSizeSetting));
+          return descriptor === NOT_REPORTED ? '' : descriptor;
+        }
+      ],
+      [
+        'Students per faculty',
+        (school) => (school.faculty.studentRatio == null ? '' : `1:${Math.round(school.faculty.studentRatio)}`)
+      ],
+      [
+        'Full-time faculty (%)',
+        (school) => (school.faculty.fullTimeRate == null ? '' : Math.round(school.faculty.fullTimeRate * 100))
+      ]
     ];
     const rows = [
-      header,
-      ...this.#currentResults.map((school) => [
-        school.name,
-        school.location.city,
-        school.location.state,
-        school.enrollment.size,
-        school.location.distance?.toFixed(1),
-        school.admissions.admissionRate,
-        school.cost.tuitionInState,
-        school.cost.tuitionOutOfState,
-        school.cost.attendanceAcademicYear,
-        school.cost.netPriceOverall,
-        school.aid.pellRate,
-        school.aid.medianDebtCompleters,
-        school.outcomes.completion4yr150,
-        school.outcomes.retentionFourYearFull,
-        school.outcomes.earnings10yr,
-        school.profile.website
-      ])
+      columns.map(([heading]) => heading),
+      ...this.#currentResults.map((school) => columns.map(([, value]) => value(school)))
     ];
     const blob = new Blob([rows.map((row) => row.map(quote).join(',')).join('\n')], { type: 'text/csv' });
     const link = Object.assign(document.createElement('a'), {

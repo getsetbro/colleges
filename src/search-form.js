@@ -1,9 +1,13 @@
+// Shared with college-results.js: the user's last-used ZIP (search + directions).
+const LAST_ZIP_KEY = 'college-last-zip';
+
 const template = document.createElement('template');
 
 template.innerHTML = `
   <style>
     :host { display: block; }
-    form { display: grid; grid-template-columns: repeat(4, 1fr) 1.1fr; gap: 18px; margin-top: 32px; align-items: end; }
+    form { display: grid; grid-template-columns: repeat(4, 1fr) 1.4fr 1.1fr; gap: 18px; margin-top: 32px; align-items: end; }
+    input::placeholder { color: #8fa39c; }
     label { color: #bfcac6; font: 600 .73rem 'DM Sans', sans-serif; letter-spacing: .06em; text-transform: uppercase; }
     input { box-sizing: border-box; width: 100%; margin-top: 9px; padding: 14px; border: 1px solid #557068; border-radius: 2px; outline: none; background: #24483e; color: #fff; font: inherit; }
     input:focus { border-color: #d4a33d; }
@@ -14,9 +18,10 @@ template.innerHTML = `
   </style>
   <form>
     <label>ZIP code<input name="zip" inputmode="numeric" pattern="[0-9]{5}" maxlength="5" value="45036" required /></label>
-    <label>Radius (miles)<input name="radius" type="number" min="1" max="500" value="170" required /></label>
-    <label>Minimum undergrads<input name="minStudents" type="number" min="0" max="100000" value="555" required /></label>
-    <label>Maximum undergrads<input name="maxStudents" type="number" min="2" max="100000" value="2500" required /></label>
+    <label>Radius (miles)<input name="radius" type="number" min="1" max="500" value="300" required /></label>
+    <label>Min undergrads<input name="minStudents" type="number" min="0" max="100000" value="600" required /></label>
+    <label>Max undergrads<input name="maxStudents" type="number" min="2" max="100000" value="3000" required /></label>
+    <label>Field of study<input name="fieldOfStudy" type="search" placeholder="e.g. Nursing (optional)" value="English" autocomplete="off" /></label>
     <button type="submit"><span>Search colleges</span><span aria-hidden="true">→</span></button>
   </form>
 `;
@@ -29,6 +34,14 @@ class CollegeSearchForm extends HTMLElement {
     this.attachShadow({ mode: 'open' }).append(template.content.cloneNode(true));
     this.#button = this.shadowRoot.querySelector('button');
     this.shadowRoot.querySelector('form').addEventListener('submit', (event) => this.#handleSubmit(event));
+    // Default the ZIP to the user's last-used one, if any.
+    try {
+      const stored = localStorage.getItem(LAST_ZIP_KEY);
+      const zipInput = /** @type {HTMLInputElement|null} */ (this.shadowRoot.querySelector('input[name="zip"]'));
+      if (stored && zipInput && /^\d{5}$/.test(stored)) zipInput.value = stored;
+    } catch {
+      // localStorage unavailable — keep the default ZIP.
+    }
   }
 
   set loading(value) {
@@ -44,6 +57,13 @@ class CollegeSearchForm extends HTMLElement {
   #handleSubmit(event) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
+    const zip = data.get('zip');
+    // Remember the ZIP so other views (e.g. directions) can reuse it without prompting.
+    try {
+      if (typeof zip === 'string' && /^\d{5}$/.test(zip)) localStorage.setItem(LAST_ZIP_KEY, zip);
+    } catch {
+      // localStorage unavailable — skip persisting.
+    }
     this.dispatchEvent(
       new CustomEvent('search', {
         bubbles: true,
@@ -51,7 +71,8 @@ class CollegeSearchForm extends HTMLElement {
           zip: data.get('zip'),
           radius: Number(data.get('radius')),
           minStudents: Number(data.get('minStudents')),
-          maxStudents: Number(data.get('maxStudents'))
+          maxStudents: Number(data.get('maxStudents')),
+          fieldOfStudy: String(data.get('fieldOfStudy') ?? '').trim()
         }
       })
     );

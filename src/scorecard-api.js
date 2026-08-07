@@ -13,24 +13,28 @@ const FIELDS = [...INSTITUTION_FIELDS, ...PROGRAM_FIELDS].join(',');
  */
 
 /**
- * Fetch a single page of results.
- * @param {SearchCriteria} criteria
- * @param {number} page
+ * Query parameters shared by every schools-endpoint request.
  * @param {string} apiKey
- * @returns {Promise<{ metadata: { total: number, per_page: number }, results: Array<Record<string, *>> }>}
+ * @param {number} page
+ * @returns {Record<string, string>}
  */
-async function fetchPage(criteria, page, apiKey) {
-  const parameters = new URLSearchParams({
+function baseParams(apiKey, page) {
+  return {
     api_key: apiKey,
-    zip: criteria.zip,
-    distance: `${criteria.radius}mi`,
-    'latest.student.size__range': `${criteria.minStudents}..${criteria.maxStudents - 1}`,
     'school.operating': '1',
     all_programs_nested: 'true',
     fields: FIELDS,
     per_page: '100',
     page: String(page)
-  });
+  };
+}
+
+/**
+ * Fetch a single page for an arbitrary set of query parameters.
+ * @param {URLSearchParams} parameters
+ * @returns {Promise<{ metadata: { total: number, per_page: number }, results: Array<Record<string, *>> }>}
+ */
+async function fetchPage(parameters) {
   const response = await fetch(`${API_URL}?${parameters}`);
   if (!response.ok) {
     throw new Error(
@@ -41,16 +45,45 @@ async function fetchPage(criteria, page, apiKey) {
 }
 
 /**
- * Fetch every page of results for the given criteria.
+ * Fetch every page for a query. `makeParams(page)` builds the params for a page.
+ * @param {(page: number) => URLSearchParams} makeParams
+ * @returns {Promise<Array<Record<string, *>>>}
+ */
+async function fetchAllPages(makeParams) {
+  const firstPage = await fetchPage(makeParams(0));
+  const pageCount = Math.ceil(firstPage.metadata.total / firstPage.metadata.per_page);
+  const remaining = await Promise.all(
+    Array.from({ length: Math.max(0, pageCount - 1) }, (_, index) => fetchPage(makeParams(index + 1)))
+  );
+  return [firstPage, ...remaining].flatMap((page) => page.results);
+}
+
+/**
+ * Search by location and enrollment (ZIP + radius + size range).
  * @param {SearchCriteria} criteria
  * @param {string} apiKey
  * @returns {Promise<Array<Record<string, *>>>}
  */
-export async function search(criteria, apiKey) {
-  const firstPage = await fetchPage(criteria, 0, apiKey);
-  const pageCount = Math.ceil(firstPage.metadata.total / firstPage.metadata.per_page);
-  const remaining = await Promise.all(
-    Array.from({ length: Math.max(0, pageCount - 1) }, (_, index) => fetchPage(criteria, index + 1, apiKey))
+export function search(criteria, apiKey) {
+  return fetchAllPages(
+    (page) =>
+      new URLSearchParams({
+        ...baseParams(apiKey, page),
+        zip: criteria.zip,
+        distance: `${criteria.radius}mi`,
+        'latest.student.size__range': `${criteria.minStudents}..${criteria.maxStudents - 1}`
+      })
   );
-  return [firstPage, ...remaining].flatMap((page) => page.results);
+}
+
+/**
+ * Search by institution name, anywhere in the country. Note the API's school.name
+ * search also matches city, so callers should filter results down to true name
+ * matches (see name-search.js).
+ * @param {string} name
+ * @param {string} apiKey
+ * @returns {Promise<Array<Record<string, *>>>}
+ */
+export function searchByName(name, apiKey) {
+  return fetchAllPages((page) => new URLSearchParams({ ...baseParams(apiKey, page), 'school.name': name }));
 }
