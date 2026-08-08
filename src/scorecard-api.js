@@ -77,13 +77,35 @@ export function search(criteria, apiKey) {
 }
 
 /**
- * Search by institution name, anywhere in the country. Note the API's school.name
- * search also matches city, so callers should filter results down to true name
- * matches (see name-search.js).
+ * Fetch a specific set of schools by their Scorecard id. The API treats a
+ * comma-separated `id` value as an OR filter, so all ids are requested at once
+ * (paged if the set exceeds one page). Returns [] for an empty id list.
+ * @param {string[]} ids
+ * @param {string} apiKey
+ * @returns {Promise<Array<Record<string, *>>>}
+ */
+export function searchByIds(ids, apiKey) {
+  if (!ids.length) return Promise.resolve([]);
+  return fetchAllPages((page) => new URLSearchParams({ ...baseParams(apiKey, page), id: ids.join(',') }));
+}
+
+/**
+ * Search by institution name, anywhere in the country. Queries both the official
+ * name and known aliases (former/alternate names) and merges the two result sets,
+ * deduped by id. Note the API's school.name search also matches city, so callers
+ * should filter results down to true name/alias matches (see name-search.js).
+ * The alias query is best-effort: if it fails, name results are still returned.
  * @param {string} name
  * @param {string} apiKey
  * @returns {Promise<Array<Record<string, *>>>}
  */
-export function searchByName(name, apiKey) {
-  return fetchAllPages((page) => new URLSearchParams({ ...baseParams(apiKey, page), 'school.name': name }));
+export async function searchByName(name, apiKey) {
+  const byName = fetchAllPages((page) => new URLSearchParams({ ...baseParams(apiKey, page), 'school.name': name }));
+  const byAlias = fetchAllPages(
+    (page) => new URLSearchParams({ ...baseParams(apiKey, page), 'school.alias': name })
+  ).catch(() => /** @type {Array<Record<string, *>>} */ ([]));
+  const [nameResults, aliasResults] = await Promise.all([byName, byAlias]);
+  const merged = new Map(nameResults.map((school) => [school.id, school]));
+  for (const school of aliasResults) if (!merged.has(school.id)) merged.set(school.id, school);
+  return [...merged.values()];
 }

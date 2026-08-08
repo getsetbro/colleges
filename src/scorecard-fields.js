@@ -149,6 +149,13 @@ export const CARNEGIE_UNDERGRAD = {
   15: 'Four-year, full-time, more selective, higher transfer-in'
 };
 
+/** @type {Record<string, string>} — OPENADMP, open-admissions policy */
+export const OPEN_ADMISSIONS_POLICY = {
+  1: 'Open admissions',
+  2: 'Does not have an open-admissions policy',
+  3: 'Does not enroll first-time students'
+};
+
 /**
  * Religious affiliation (RELAFFIL). Only the codes present in the dictionary are
  * mapped; unknown codes fall through to "Not reported".
@@ -278,16 +285,45 @@ export const PROGRAM_FIELD_LABELS = {
  * traced back to the popular-programs family it rolls up into ("health").
  */
 const CIP_SERIES_TO_PROGRAM_KEY = {
-  '01': 'agriculture', '03': 'resources', '04': 'architecture', '05': 'ethnic_cultural_gender',
-  '09': 'communication', '10': 'communications_technology', '11': 'computer', '12': 'personal_culinary',
-  '13': 'education', '14': 'engineering', '15': 'engineering_technology', '16': 'language',
-  '19': 'family_consumer_science', '22': 'legal', '23': 'english', '24': 'humanities', '25': 'library',
-  '26': 'biological', '27': 'mathematics', '28': 'military', '29': 'military', '30': 'multidiscipline',
-  '31': 'parks_recreation_fitness', '38': 'philosophy_religious', '39': 'theology_religious_vocation',
-  '40': 'physical_science', '41': 'science_technology', '42': 'psychology', '43': 'security_law_enforcement',
-  '44': 'public_administration_social_service', '45': 'social_science', '46': 'construction',
-  '47': 'mechanic_repair_technology', '48': 'precision_production', '49': 'transportation',
-  '50': 'visual_performing', '51': 'health', '52': 'business_marketing', '54': 'history'
+  '01': 'agriculture',
+  '03': 'resources',
+  '04': 'architecture',
+  '05': 'ethnic_cultural_gender',
+  '09': 'communication',
+  10: 'communications_technology',
+  11: 'computer',
+  12: 'personal_culinary',
+  13: 'education',
+  14: 'engineering',
+  15: 'engineering_technology',
+  16: 'language',
+  19: 'family_consumer_science',
+  22: 'legal',
+  23: 'english',
+  24: 'humanities',
+  25: 'library',
+  26: 'biological',
+  27: 'mathematics',
+  28: 'military',
+  29: 'military',
+  30: 'multidiscipline',
+  31: 'parks_recreation_fitness',
+  38: 'philosophy_religious',
+  39: 'theology_religious_vocation',
+  40: 'physical_science',
+  41: 'science_technology',
+  42: 'psychology',
+  43: 'security_law_enforcement',
+  44: 'public_administration_social_service',
+  45: 'social_science',
+  46: 'construction',
+  47: 'mechanic_repair_technology',
+  48: 'precision_production',
+  49: 'transportation',
+  50: 'visual_performing',
+  51: 'health',
+  52: 'business_marketing',
+  54: 'history'
 };
 
 /**
@@ -321,13 +357,13 @@ export const SPECIAL_DESIGNATION_FLAGS = [
   {
     key: 'school.minority_serving.tribal',
     label: 'Tribal college',
-    title: 'Tribal College or University — chartered by a tribal government and primarily serving Native American students.'
+    title:
+      'Tribal College or University — chartered by a tribal government and primarily serving Native American students.'
   },
   {
     key: 'school.minority_serving.aanipi',
     label: 'AANAPI-serving',
-    title:
-      'Asian American & Native American Pacific Islander-Serving Institution — at least 10% AANAPI enrollment.'
+    title: 'Asian American & Native American Pacific Islander-Serving Institution — at least 10% AANAPI enrollment.'
   },
   {
     key: 'school.minority_serving.annh',
@@ -498,10 +534,12 @@ export function safeUrl(value) {
 const SCHOOL_FIELDS = [
   'id',
   'school.name',
+  'school.alias',
   'school.city',
   'school.state',
   'school.zip',
   'school.ownership',
+  'school.open_admissions_policy',
   'school.degrees_awarded.predominant',
   'school.degrees_awarded.highest',
   'school.carnegie_basic',
@@ -529,6 +567,12 @@ const LATEST_FIELDS = [
   'student.enrollment.grad_12_month',
   'student.part_time_share',
   'student.share_25_older',
+  'student.share_firstgeneration',
+  'student.share_lowincome.0_30000',
+  'student.share_middleincome.30001_48000',
+  'student.share_middleincome.48001_75000',
+  'student.share_highincome.75001_110000',
+  'student.share_highincome.110001plus',
   'student.demographics.men',
   'student.demographics.women',
   'student.demographics.race_ethnicity.white',
@@ -722,6 +766,8 @@ export function mapSchool(raw, distance = null) {
     ownershipCode,
     profile: {
       ownership: ownershipCode,
+      alias: clean(get(raw, 'school.alias')),
+      openAdmissionsPolicy: num(get(raw, 'school.open_admissions_policy')),
       predominantDegree: clean(get(raw, 'school.degrees_awarded.predominant')),
       highestDegree: clean(get(raw, 'school.degrees_awarded.highest')),
       carnegieBasic: clean(get(raw, 'school.carnegie_basic')),
@@ -753,6 +799,14 @@ export function mapSchool(raw, distance = null) {
       grad12mo: num(get(raw, 'latest.student.enrollment.grad_12_month')),
       partTimeShare: num(get(raw, 'latest.student.part_time_share')),
       share25older: num(get(raw, 'latest.student.share_25_older')),
+      shareFirstGeneration: num(get(raw, 'latest.student.share_firstgeneration')),
+      incomeDistribution: {
+        low: num(get(raw, 'latest.student.share_lowincome.0_30000')),
+        lowerMiddle: num(get(raw, 'latest.student.share_middleincome.30001_48000')),
+        upperMiddle: num(get(raw, 'latest.student.share_middleincome.48001_75000')),
+        high: num(get(raw, 'latest.student.share_highincome.75001_110000')),
+        highest: num(get(raw, 'latest.student.share_highincome.110001plus'))
+      },
       demographics: {
         men: num(get(raw, 'latest.student.demographics.men')),
         women: num(get(raw, 'latest.student.demographics.women')),

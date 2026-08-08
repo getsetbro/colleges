@@ -4,34 +4,24 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
-    <meta name="description" content="Find colleges using College Scorecard data." />
+    <meta name="description" content="Your saved colleges, with full College Scorecard data." />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Serif+Display:ital@0;1&display=swap"
       rel="stylesheet"
     />
-    <title>Colleges Find</title>
+    <title>Your Saved Colleges</title>
   </head>
   <body>
     <main>
-      <page-header heading="Find the colleges." accent="colleges" current="location"></page-header>
-      <section class="search-card" aria-labelledby="search-title">
-        <div class="section-heading">
-          <div>
-            <span class="step">01</span>
-            <h2 id="search-title">Search parameters</h2>
-          </div>
-        </div>
-        <college-search-form></college-search-form>
-      </section>
-
+      <page-header heading="Your favorites." accent="favorites" current="favorites"></page-header>
       <college-results></college-results>
     </main>
     <footer>
       <span>Data from the U.S. Department of Education College Scorecard</span
       ><a href="https://collegescorecard.ed.gov/data/" target="_blank" rel="noreferrer">API documentation ↗</a>
     </footer>
-    <script type="module" src="/src/app.js"></script>
+    <script type="module" src="/src/favorites.js"></script>
   </body>
 </html>

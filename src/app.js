@@ -1,5 +1,6 @@
 // @ts-check
 import './styles.css';
+import './page-header.js';
 import './search-form.js';
 import './college-results.js';
 import { search } from './scorecard-api.js';
@@ -76,10 +77,7 @@ searchForm.addEventListener('search', async (/** @type {CustomEvent} */ event) =
   searchForm.loading = true;
   collegeResults.loading = true;
   try {
-    const [schools, zipLocation] = await Promise.all([
-      search(event.detail, API_KEY),
-      getZipLocation(event.detail.zip)
-    ]);
+    const [schools, zipLocation] = await Promise.all([search(event.detail, API_KEY), getZipLocation(event.detail.zip)]);
     const origin = zipLocation?.coordinates ?? null;
     // A field of study entered in the search form matches against a school's full
     // list of fields of study (programs), distinct from the results' popular-program filter.

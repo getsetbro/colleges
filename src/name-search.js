@@ -1,5 +1,6 @@
 // @ts-check
 import './styles.css';
+import './page-header.js';
 import './name-search-form.js';
 import './college-results.js';
 import { searchByName } from './scorecard-api.js';
@@ -25,8 +26,13 @@ searchForm.addEventListener('namesearch', async (/** @type {CustomEvent} */ even
     const schools = await searchByName(event.detail.name, API_KEY);
     collegeResults.results = schools
       .map((school) => mapSchool(school))
-      // The API's school.name search also matches city; keep only true name matches.
-      .filter((school) => school.name.toLocaleLowerCase().includes(term))
+      // The API's school.name search also matches city; keep only true name matches,
+      // plus schools whose alias (former/alternate name) contains the term.
+      .filter(
+        (school) =>
+          school.name.toLocaleLowerCase().includes(term) ||
+          (school.profile.alias ?? '').toLocaleLowerCase().includes(term)
+      )
       .sort((a, b) => a.name.localeCompare(b.name));
   } catch (error) {
     collegeResults.setError(error instanceof Error ? error.message : String(error));

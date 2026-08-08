@@ -17,8 +17,6 @@ import {
   formatPercent,
   formatScore,
   formatRange,
-  formatCoordinate,
-  formatMiles,
   NOT_REPORTED
 } from './scorecard-fields.js';
 
@@ -28,6 +26,8 @@ const DIRECTIONS_ORIGIN = '45036';
 const MAX_PROGRAM_ROWS = 15;
 // localStorage key for the user's per-section collapse/expand choices.
 const SECTION_STATE_KEY = 'college-section-states';
+// localStorage key for the user's favorited schools (an array of school ids).
+export const FAVORITES_KEY = 'college-favorites';
 // Shared with search-form.js: the user's last-used ZIP.
 const LAST_ZIP_KEY = 'college-last-zip';
 
@@ -64,6 +64,10 @@ const escapeHtml = (value) =>
   );
 
 const ownershipLabel = (code) => label(OWNERSHIP, code);
+
+/** @param {boolean} favorited @returns {string} inner markup (the star glyph) for a favorite toggle */
+const favoriteButtonInner = (favorited) =>
+  `<span class="favorite-star" aria-hidden="true">${favorited ? '★' : '☆'}</span>`;
 
 /** @param {MappedSchool} school @returns {string} a lat,lon pair or a human-readable address */
 function directionsDestination(school) {
@@ -129,30 +133,15 @@ function profileGroup(school) {
       ['Carnegie classification', label(CARNEGIE_BASIC, p.carnegieBasic)],
       ['Undergraduate profile', label(CARNEGIE_UNDERGRAD, p.carnegieUndergrad)],
       ['Size & setting', label(CARNEGIE_SIZE_SETTING, p.carnegieSizeSetting)],
+      ['Setting (locale)', label(LOCALE, school.location.locale)],
       ['Residential character', residentialCharacter(label(CARNEGIE_SIZE_SETTING, p.carnegieSizeSetting))],
       ['Main campus', p.mainCampus === 1 ? 'Yes' : p.mainCampus === 0 ? 'No (branch)' : NOT_REPORTED],
       ['Branch campuses', formatCount(p.branches, { zeroOk: true })],
       ['Religious affiliation', label(RELIGIOUS_AFFILIATION, p.religiousAffiliation)],
-      ['Website', linkValue(p.website, 'Homepage')],
-      ['Net price calculator', linkValue(p.netPriceCalculatorUrl, 'Calculator')]
+      ['Website', linkValue(p.website, 'Homepage')]
     ],
     'IPEDS'
   );
-}
-
-/** @param {MappedSchool} school @returns {string} */
-function locationGroup(school) {
-  const l = school.location;
-  const items = /** @type {Array<[string, string | { html: string }]>} */ ([
-    ['City', l.city ?? NOT_REPORTED],
-    ['State', l.state ?? NOT_REPORTED],
-    ['ZIP code', l.zip ?? NOT_REPORTED],
-    ['Setting (locale)', label(LOCALE, l.locale)],
-    ['Latitude', formatCoordinate(l.lat)],
-    ['Longitude', formatCoordinate(l.lon)]
-  ]);
-  if (l.distance != null) items.push(['Distance from search ZIP', formatMiles(l.distance)]);
-  return detailGroup('Location', items, 'IPEDS');
 }
 
 /** @param {MappedSchool} school @returns {string} */
@@ -263,7 +252,8 @@ function costGroup(school) {
       ['Pell Grant recipients', formatPercent(school.aid.pellRate)],
       ['Federal loan recipients', formatPercent(school.aid.federalLoanRate)],
       ['Median debt (completers)', formatCurrency(school.aid.medianDebtCompleters)],
-      ['Est. monthly loan payment', formatCurrency(school.aid.medianDebtMonthly)]
+      ['Est. monthly loan payment', formatCurrency(school.aid.medianDebtMonthly)],
+      ['Net price calculator', linkValue(school.profile.netPriceCalculatorUrl, 'Calculator')]
     ],
     'IPEDS; aid & debt from NSLDS'
   );
@@ -339,7 +329,7 @@ function programsTable(school, allowedCredentials) {
           ? String(program.credentialTitle)
           : label(CREDENTIAL_LEVEL, program.credentialLevel);
       const overflow = index >= MAX_PROGRAM_ROWS ? ' class="program-overflow"' : '';
-      return `<tr${overflow}><td>${escapeHtml(program.title ?? NOT_REPORTED)}</td><td>${escapeHtml(credential)}</td><td>${escapeHtml(program.share == null ? NOT_REPORTED : formatPercent(program.share))}</td><td>${escapeHtml(formatCount(program.awards, { zeroOk: true }))}</td></tr>`;
+      return `<tr${overflow}><td>${escapeHtml(program.title ?? NOT_REPORTED)}</td><td>${escapeHtml(credential)}</td><td>${escapeHtml(program.share == null ? NOT_REPORTED : formatPercent(program.share))}</td><td>${escapeHtml(formatCount(program.awards, { zeroOk: true }))}</td><td>${escapeHtml(formatCurrency(program.earnings1yr))}</td><td>${escapeHtml(formatCurrency(program.medianDebt))}</td></tr>`;
     })
     .join('');
   let checkbox = '';
@@ -349,7 +339,7 @@ function programsTable(school, allowedCredentials) {
     checkbox = `<input type="checkbox" id="${toggleId}" class="program-toggle" hidden />`;
     toggleLabels = `<label class="program-toggle-label more" for="${toggleId}">Show all ${total} fields of study →</label><label class="program-toggle-label less" for="${toggleId}">Show fewer ↑</label>`;
   }
-  return `<details class="detail-group detail-group-collapsible program-table" data-section="fields-of-study" open><summary><h4>Fields of study</h4></summary>${checkbox}<table><thead><tr><th>Program</th><th>Credential</th><th>% of degrees</th><th>Awards</th></tr></thead><tbody>${rows}</tbody></table>${toggleLabels}<p class="detail-source">Sorted by share of degrees. Source: IPEDS</p></details>`;
+  return `<details class="detail-group detail-group-collapsible program-table" data-section="fields-of-study" open><summary><h4>Fields of study</h4></summary>${checkbox}<table><thead><tr><th>Program</th><th>Credential</th><th>% of degrees</th><th>Awards</th><th>Median earnings (1 yr)</th><th>Median debt</th></tr></thead><tbody>${rows}</tbody></table>${toggleLabels}<p class="detail-source">Sorted by share of degrees. Source: IPEDS</p></details>`;
 }
 
 function compareNullable(a, b, direction = 1) {
@@ -398,6 +388,31 @@ function diversityRating(school) {
   return index == null ? 'Low' : ratingLabel(index);
 }
 
+/** @param {number} rate 0–1 admission rate @returns {string} selectivity label (lower rate ⇒ more selective) */
+function selectivityLabel(rate) {
+  if (rate >= 1) return 'Open';
+  if (rate <= 0.1) return 'Elite';
+  if (rate <= 0.25) return 'Very high';
+  if (rate <= 0.5) return 'High';
+  if (rate <= 0.75) return 'Mid';
+  return 'Low';
+}
+
+/** @param {MappedSchool} school @returns {string} a selectivity tile for the result card */
+function selectivityTile(school) {
+  const rate = school.admissions.admissionRate;
+  // An explicit open-admissions policy is authoritative — a school can report a
+  // sub-100% admission rate yet still admit all eligible applicants.
+  if (school.profile.openAdmissionsPolicy === 1) {
+    const title = `Open admissions — admits all eligible applicants${rate == null ? '' : ` (accepts ${formatPercent(rate)})`}`;
+    return `<div class="selectivity" title="${escapeHtml(title)}"><strong>Open</strong><span>selective</span></div>`;
+  }
+  if (rate == null)
+    return `<div class="selectivity"><strong>${escapeHtml(NOT_REPORTED)}</strong><span>selective</span></div>`;
+  const title = `Accepts ${formatPercent(rate)} of applicants`;
+  return `<div class="selectivity" title="${escapeHtml(title)}"><strong>${escapeHtml(selectivityLabel(rate))}</strong><span>selective</span></div>`;
+}
+
 /** @param {MappedSchool} school @returns {string} a diversity tile for the result card */
 function diversityTile(school) {
   const index = diversityIndex(school.enrollment.demographics);
@@ -414,21 +429,24 @@ function residentialTile(school) {
   const short = { 'Highly residential': 'High', 'Primarily residential': 'Mid', 'Primarily nonresidential': 'Non' }[
     descriptor
   ];
-  if (!short) return `<div class="residential"><strong>${escapeHtml(NOT_REPORTED)}</strong><span>residential</span></div>`;
+  if (!short)
+    return `<div class="residential"><strong>${escapeHtml(NOT_REPORTED)}</strong><span>residential</span></div>`;
   return `<div class="residential" title="${escapeHtml(descriptor)}"><strong>${escapeHtml(short)}</strong><span>residential</span></div>`;
 }
 
 /** @param {MappedSchool} school @returns {string} a student-to-faculty ratio tile for the result card */
 function facultyRatioTile(school) {
   const ratio = school.faculty.studentRatio;
-  if (ratio == null) return `<div class="faculty-ratio"><strong>${escapeHtml(NOT_REPORTED)}</strong><span>teacher</span></div>`;
+  if (ratio == null)
+    return `<div class="faculty-ratio"><strong>${escapeHtml(NOT_REPORTED)}</strong><span>teacher</span></div>`;
   return `<div class="faculty-ratio" title="Undergraduate students per faculty member"><strong>1:${Math.round(ratio)}</strong><span>teacher</span></div>`;
 }
 
 /** @param {MappedSchool} school @returns {string} a full-time faculty tile for the result card */
 function facultyFtTile(school) {
   const rate = school.faculty.fullTimeRate;
-  if (rate == null) return `<div class="faculty-ft"><strong>${escapeHtml(NOT_REPORTED)}</strong><span>FT faculty</span></div>`;
+  if (rate == null)
+    return `<div class="faculty-ft"><strong>${escapeHtml(NOT_REPORTED)}</strong><span>FT faculty</span></div>`;
   return `<div class="faculty-ft" title="Share of faculty employed full-time"><strong>${Math.round(rate * 100)}%</strong><span>FT faculty</span></div>`;
 }
 
@@ -445,6 +463,10 @@ class CollegeResults extends HTMLElement {
   #relevanceTerm = '';
   /** @type {Set<string>} upper-cased state abbreviations to exclude from the results */
   #excludedStates = new Set();
+  /** @type {Set<string>} school ids the user has favorited; loaded from and persisted to localStorage */
+  #favorites = new Set();
+  /** @type {string|null} overrides the default "no results at all" empty message (e.g. the favorites page) */
+  #emptyMessage = null;
 
   connectedCallback() {
     this.innerHTML = `
@@ -461,11 +483,13 @@ class CollegeResults extends HTMLElement {
             <label class="attr-chip"><input type="checkbox" class="hide-nonresidential" checked />Non-residential</label>
             <label class="attr-chip"><input type="checkbox" class="hide-low-diversity" checked />Low diversity</label>
             <label class="attr-chip"><input type="checkbox" class="hide-low-ft" checked />Low FT faculty</label>
+            <label class="attr-chip favorites-chip"><input type="checkbox" class="favorites-only" />★ Favorites only</label>
           </div>
         </form>
         <div class="state-exclude" hidden></div>
         <div class="results-grid" aria-live="polite"></div>
       </section>`;
+    this.#favorites = this.#loadFavorites();
     const controls = /** @type {HTMLFormElement} */ (this.querySelector('.result-controls'));
     controls.addEventListener('submit', (event) => event.preventDefault());
     controls.addEventListener('input', () => this.#update());
@@ -483,6 +507,8 @@ class CollegeResults extends HTMLElement {
     this.querySelector('.print-button')?.addEventListener('click', () => window.print());
     // Directions links have no origin on a name search; prompt for a ZIP on click.
     this.#grid().addEventListener('click', (event) => this.#handleDirectionsClick(event));
+    // Favorite (star) toggles, delegated from the grid.
+    this.#grid().addEventListener('click', (event) => this.#handleFavoriteClick(event));
     // Persist each section's collapse/expand choice. `toggle` doesn't bubble, so
     // listen in the capture phase to catch it from any card's <details>.
     this.#grid().addEventListener('toggle', (event) => this.#handleSectionToggle(event), true);
@@ -540,6 +566,58 @@ class CollegeResults extends HTMLElement {
       });
   }
 
+  /** @returns {Set<string>} the persisted favorite school ids */
+  #loadFavorites() {
+    try {
+      const stored = JSON.parse(localStorage.getItem(FAVORITES_KEY) ?? '[]');
+      return new Set(Array.isArray(stored) ? stored.map(String) : []);
+    } catch {
+      return new Set();
+    }
+  }
+
+  #saveFavorites() {
+    try {
+      localStorage.setItem(FAVORITES_KEY, JSON.stringify([...this.#favorites]));
+    } catch {
+      // Storage unavailable (private mode / quota) — favorites just won't persist.
+    }
+  }
+
+  /** @returns {boolean} whether the "Favorites only" filter is active */
+  #favoritesOnly() {
+    return Boolean(/** @type {HTMLInputElement|null} */ (this.querySelector('.favorites-only'))?.checked);
+  }
+
+  /**
+   * Toggle a card's favorite state. Persists immediately. When the "Favorites
+   * only" filter is on, a full re-render lets the un-favorited card drop out;
+   * otherwise the button is updated in place to avoid re-rendering the grid.
+   * @param {MouseEvent} event
+   */
+  #handleFavoriteClick(event) {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const button = target.closest('.favorite-toggle');
+    if (!(button instanceof HTMLElement)) return;
+    const id = button.dataset.id;
+    if (!id) return;
+    const favorited = !this.#favorites.has(id);
+    if (favorited) this.#favorites.add(id);
+    else this.#favorites.delete(id);
+    this.#saveFavorites();
+    if (this.#favoritesOnly()) {
+      this.#update();
+      return;
+    }
+    button.classList.toggle('is-favorite', favorited);
+    button.setAttribute('aria-pressed', String(favorited));
+    const buttonLabel = favorited ? 'Remove from favorites' : 'Save to favorites';
+    button.title = buttonLabel;
+    button.setAttribute('aria-label', buttonLabel);
+    button.innerHTML = favoriteButtonInner(favorited);
+  }
+
   /** @param {MouseEvent} event */
   #handleDirectionsClick(event) {
     const link = /** @type {HTMLElement} */ (event.target).closest('.directions-link');
@@ -578,6 +656,16 @@ class CollegeResults extends HTMLElement {
     /** @type {HTMLElement} */ (this.querySelector('.state-exclude')).hidden = true;
     this.#exportButton().hidden = true;
     this.#printButton().hidden = true;
+  }
+
+  /**
+   * Override the message shown when there are no results at all (as opposed to
+   * results hidden by filters). Used by the favorites page for a friendlier
+   * "you haven't saved anything yet" prompt.
+   * @param {string|null} value
+   */
+  set emptyMessage(value) {
+    this.#emptyMessage = value ? String(value) : null;
   }
 
   /** @param {string|null} value state abbreviation of the searched ZIP */
@@ -681,7 +769,9 @@ class CollegeResults extends HTMLElement {
   #resetControls() {
     this.#controls().reset();
     this.#excludedStates = new Set();
-    this.querySelectorAll('.state-exclude input').forEach((box) => (/** @type {HTMLInputElement} */ (box).checked = false));
+    this.querySelectorAll('.state-exclude input').forEach((box) => {
+      /** @type {HTMLInputElement} */ (box).checked = false;
+    });
     // On the name-search page, relevance/distance sorts and degree restrictions don't apply.
     if (this.#hideDistance) {
       const sort = /** @type {HTMLSelectElement} */ (this.querySelector('.result-sort'));
@@ -694,7 +784,12 @@ class CollegeResults extends HTMLElement {
   #renderStateChips() {
     const container = /** @type {HTMLElement} */ (this.querySelector('.state-exclude'));
     const states = [
-      ...new Set(this.#allResults.map((school) => school.location.state).filter(Boolean).map((s) => String(s).toUpperCase()))
+      ...new Set(
+        this.#allResults
+          .map((school) => school.location.state)
+          .filter(Boolean)
+          .map((s) => String(s).toUpperCase())
+      )
     ].sort();
     if (states.length <= 1) {
       container.hidden = true;
@@ -705,7 +800,10 @@ class CollegeResults extends HTMLElement {
     container.innerHTML =
       '<span class="state-exclude-label">Exclude states</span>' +
       states
-        .map((state) => `<label class="state-chip"><input type="checkbox" value="${escapeHtml(state)}" />${escapeHtml(state)}</label>`)
+        .map(
+          (state) =>
+            `<label class="state-chip"><input type="checkbox" value="${escapeHtml(state)}" />${escapeHtml(state)}</label>`
+        )
         .join('');
   }
 
@@ -752,6 +850,7 @@ class CollegeResults extends HTMLElement {
     const hideNonResidential = /** @type {HTMLInputElement} */ (this.querySelector('.hide-nonresidential')).checked;
     const hideLowDiversity = /** @type {HTMLInputElement} */ (this.querySelector('.hide-low-diversity')).checked;
     const hideLowFt = /** @type {HTMLInputElement} */ (this.querySelector('.hide-low-ft')).checked;
+    const favoritesOnly = this.#favoritesOnly();
     const sort = /** @type {HTMLSelectElement} */ (this.querySelector('.result-sort')).value;
     const [field, direction] = sort.split('-');
     /** @type {Record<string, (school: MappedSchool) => number|undefined>} */
@@ -776,7 +875,8 @@ class CollegeResults extends HTMLElement {
           !(hideNonResidential && isNonResidential) &&
           // A missing diversity score counts as Low (see diversityRating).
           !(hideLowDiversity && diversityRating(school) === 'Low') &&
-          !(hideLowFt && ftRate != null && ftFacultyRating(ftRate) === 'Low')
+          !(hideLowFt && ftRate != null && ftFacultyRating(ftRate) === 'Low') &&
+          (!favoritesOnly || (school.id != null && this.#favorites.has(String(school.id))))
         );
       })
       .sort((a, b) => {
@@ -816,7 +916,9 @@ class CollegeResults extends HTMLElement {
     if (!results.length) {
       output.innerHTML = this.#allResults.length
         ? '<div class="empty"><strong>No schools match these filters.</strong><span>Change or reset the result filters to see more schools.</span></div>'
-        : '<div class="empty"><strong>No matching colleges found.</strong><span>Try increasing the radius or maximum enrollment.</span></div>';
+        : this.#emptyMessage
+          ? `<div class="empty"><strong>${escapeHtml(this.#emptyMessage)}</strong></div>`
+          : '<div class="empty"><strong>No matching colleges found.</strong><span>Try increasing the radius or maximum enrollment.</span></div>';
       return;
     }
     output.innerHTML = results.map((school, index) => this.#card(school, index, allowedCredentials)).join('');
@@ -835,7 +937,6 @@ class CollegeResults extends HTMLElement {
       .join('');
     const groups = [
       profileGroup(school),
-      locationGroup(school),
       enrollmentGroup(school),
       facultyGroup(school),
       admissionsGroup(school),
@@ -843,12 +944,17 @@ class CollegeResults extends HTMLElement {
       outcomesGroup(school),
       programsTable(school, allowedCredentials)
     ].join('');
+    const favorited = school.id != null && this.#favorites.has(String(school.id));
+    const favoriteButton =
+      school.id == null
+        ? ''
+        : `<button type="button" class="favorite-toggle${favorited ? ' is-favorite' : ''}" data-id="${escapeHtml(String(school.id))}" aria-pressed="${favorited}" title="${favorited ? 'Remove from favorites' : 'Save to favorites'}" aria-label="${favorited ? 'Remove from favorites' : 'Save to favorites'}">${favoriteButtonInner(favorited)}</button>`;
     const destination = directionsDestination(school);
     // With no search origin (name search), defer the origin to a click-time ZIP prompt.
     const directionsLink = this.#hideDistance
       ? `<a href="#" class="directions-link" data-destination="${escapeHtml(destination)}">Directions ↗</a>`
       : `<a href="${escapeHtml(directionsUrl(destination, DIRECTIONS_ORIGIN))}" target="_blank" rel="noreferrer">Directions ↗</a>`;
-    return `<article class="result-card${locationClass}"><div class="rank">${String(index + 1).padStart(2, '0')}</div><div class="school-info"><div class="badges">${distanceBadge}<span>${escapeHtml(ownershipLabel(school.ownershipCode))}</span>${designationBadges}</div><h3>${escapeHtml(school.name)}</h3><p>${escapeHtml(school.location.city ?? '')}, ${escapeHtml(school.location.state ?? '')}</p></div><div class="metrics">${this.#fieldShareTile(school, allowedCredentials)}${diversityTile(school)}<div class="enrollment"><strong>${escapeHtml(formatCount(school.enrollment.size))}</strong><span>undergrads</span></div>${residentialTile(school)}${facultyRatioTile(school)}${facultyFtTile(school)}</div><div class="card-links">${school.profile.website ? `<a href="${escapeHtml(school.profile.website)}" target="_blank" rel="noreferrer">Website ↗</a>` : ''}${directionsLink}</div><details class="school-details"><summary>View all details</summary><div class="detail-grid">${groups}</div><p class="detail-note">${escapeHtml(LATEST_ALIAS_NOTE)}</p></details></article>`;
+    return `<article class="result-card${locationClass}"><div class="rank-col"><div class="rank">${String(index + 1).padStart(2, '0')}</div>${favoriteButton}</div><div class="school-info"><div class="badges">${distanceBadge}<span>${escapeHtml(ownershipLabel(school.ownershipCode))}</span>${designationBadges}</div><h3>${escapeHtml(school.name)}</h3><p>${escapeHtml(school.location.city ?? '')}, ${escapeHtml(school.location.state ?? '')}</p></div><div class="metrics">${this.#fieldShareTile(school, allowedCredentials)}${selectivityTile(school)}${diversityTile(school)}<div class="enrollment"><strong>${escapeHtml(formatCount(school.enrollment.size))}</strong><span>undergrads</span></div>${residentialTile(school)}${facultyRatioTile(school)}${facultyFtTile(school)}</div><div class="card-links">${school.profile.website ? `<a href="${escapeHtml(school.profile.website)}" target="_blank" rel="noreferrer">Website ↗</a>` : ''}${directionsLink}</div><details class="school-details"><summary>View all details</summary><div class="detail-grid">${groups}</div><p class="detail-note">${escapeHtml(LATEST_ALIAS_NOTE)}</p></details></article>`;
   }
 
   #export() {
@@ -874,6 +980,15 @@ class CollegeResults extends HTMLElement {
             ]
           ])
         : []),
+      [
+        'Selectivity',
+        (school) =>
+          school.profile.openAdmissionsPolicy === 1
+            ? 'Open'
+            : school.admissions.admissionRate == null
+              ? ''
+              : selectivityLabel(school.admissions.admissionRate)
+      ],
       ['Diversity', (school) => diversityRating(school)],
       ['Undergraduates', (school) => school.enrollment.size],
       [
