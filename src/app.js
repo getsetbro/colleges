@@ -3,13 +3,16 @@ import './styles.css';
 import './page-header.js';
 import './search-form.js';
 import './college-results.js';
-import { search } from './scorecard-api.js';
+import { search, fetchSchoolDetails } from './scorecard-api.js';
 import { mapSchool } from './scorecard-fields.js';
 
 const API_KEY = import.meta.env.VITE_DATA_GOV_API_KEY;
 
 const searchForm = /** @type {any} */ (document.querySelector('college-search-form'));
 const collegeResults = /** @type {any} */ (document.querySelector('college-results'));
+
+// Full record for a school is fetched only when its "View all details" expands.
+collegeResults.detailLoader = async (/** @type {string} */ id) => mapSchool(await fetchSchoolDetails(id, API_KEY));
 
 /**
  * Great-circle distance in miles between two [lat, lon] points.

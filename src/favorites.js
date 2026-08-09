@@ -2,7 +2,7 @@
 import './styles.css';
 import './page-header.js';
 import { FAVORITES_KEY } from './college-results.js';
-import { searchByIds } from './scorecard-api.js';
+import { searchByIds, fetchSchoolDetails } from './scorecard-api.js';
 import { mapSchool } from './scorecard-fields.js';
 
 const API_KEY = import.meta.env.VITE_DATA_GOV_API_KEY;
@@ -11,6 +11,8 @@ const collegeResults = /** @type {any} */ (document.querySelector('college-resul
 
 // The favorites page has no search origin, so distance is meaningless here.
 collegeResults.hideDistance = true;
+// Full record for a school is fetched only when its "View all details" expands.
+collegeResults.detailLoader = async (/** @type {string} */ id) => mapSchool(await fetchSchoolDetails(id, API_KEY));
 collegeResults.emptyMessage = 'No saved schools yet. Select “Save” on any result to collect it here.';
 
 /** @returns {string[]} the favorited school ids from localStorage */

@@ -664,6 +664,48 @@ const LATEST_FIELDS = [
 /** Every institution-level field requested from the schools endpoint. */
 export const INSTITUTION_FIELDS = [...SCHOOL_FIELDS, ...LATEST_FIELDS.map((field) => `latest.${field}`)];
 
+/**
+ * The lean field set for the initial results list: only what the result cards
+ * (tiles, badges), the result filters/sorts, and the CSV export read. The heavy
+ * nested-programs list and the detail-group-only fields (SAT/ACT, full cost
+ * breakdown, outcomes, faculty salary, extended demographics) are omitted and
+ * fetched on demand when a card's "View all details" is expanded (fetchSchoolDetails).
+ */
+export const SUMMARY_FIELDS = [
+  'id',
+  'school.name',
+  'school.alias', // name-search filters on alias
+  'school.city',
+  'school.state',
+  'school.zip',
+  'school.ownership',
+  'school.open_admissions_policy',
+  'school.degrees_awarded.predominant',
+  'school.carnegie_size_setting',
+  'school.school_url',
+  'school.religious_affiliation',
+  'school.online_only',
+  'school.men_only',
+  'school.women_only',
+  ...SPECIAL_DESIGNATION_FLAGS.map((flag) => flag.key).filter((key) => key.startsWith('school.minority_serving')),
+  'location.lat',
+  'location.lon',
+  'latest.student.size',
+  'latest.student.demographics.race_ethnicity.white',
+  'latest.student.demographics.race_ethnicity.black',
+  'latest.student.demographics.race_ethnicity.hispanic',
+  'latest.student.demographics.race_ethnicity.asian',
+  'latest.student.demographics.race_ethnicity.aian',
+  'latest.student.demographics.race_ethnicity.nhpi',
+  'latest.student.demographics.race_ethnicity.two_or_more',
+  'latest.student.demographics.race_ethnicity.non_resident_alien',
+  'latest.school.ft_faculty_rate',
+  'latest.student.demographics.student_faculty_ratio',
+  'latest.admissions.admission_rate.overall',
+  'latest.cost.avg_net_price.public',
+  'latest.cost.avg_net_price.private'
+];
+
 /** Nested field-of-study fields (requested with all_programs_nested=true). */
 export const PROGRAM_FIELDS = [
   'latest.programs.cip_4_digit.code',
@@ -778,6 +820,8 @@ export function mapSchool(raw, distance = null) {
       website: safeUrl(get(raw, 'school.school_url')),
       netPriceCalculatorUrl: safeUrl(get(raw, 'school.price_calculator_url')),
       religiousAffiliation: clean(get(raw, 'school.religious_affiliation')),
+      menOnly: num(get(raw, 'school.men_only')) === 1,
+      womenOnly: num(get(raw, 'school.women_only')) === 1,
       designations: SPECIAL_DESIGNATION_FLAGS.filter((flag) => num(get(raw, flag.key)) === 1).map((flag) => ({
         label: flag.label,
         title: flag.title

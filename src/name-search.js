@@ -3,7 +3,7 @@ import './styles.css';
 import './page-header.js';
 import './name-search-form.js';
 import './college-results.js';
-import { searchByName } from './scorecard-api.js';
+import { searchByName, fetchSchoolDetails } from './scorecard-api.js';
 import { mapSchool } from './scorecard-fields.js';
 
 const API_KEY = import.meta.env.VITE_DATA_GOV_API_KEY;
@@ -13,6 +13,8 @@ const collegeResults = /** @type {any} */ (document.querySelector('college-resul
 
 // A name search has no origin point, so distance is meaningless here.
 collegeResults.hideDistance = true;
+// Full record for a school is fetched only when its "View all details" expands.
+collegeResults.detailLoader = async (/** @type {string} */ id) => mapSchool(await fetchSchoolDetails(id, API_KEY));
 
 searchForm.addEventListener('namesearch', async (/** @type {CustomEvent} */ event) => {
   if (!API_KEY) {

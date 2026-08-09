@@ -392,7 +392,7 @@ function diversityRating(school) {
 function selectivityLabel(rate) {
   if (rate >= 1) return 'Open';
   if (rate <= 0.1) return 'Elite';
-  if (rate <= 0.25) return 'Very high';
+  if (rate <= 0.25) return 'V-high';
   if (rate <= 0.5) return 'High';
   if (rate <= 0.75) return 'Mid';
   return 'Low';
@@ -467,22 +467,35 @@ class CollegeResults extends HTMLElement {
   #favorites = new Set();
   /** @type {string|null} overrides the default "no results at all" empty message (e.g. the favorites page) */
   #emptyMessage = null;
+  /**
+   * Loads one school's full record on demand (when its "View all details" is
+   * expanded). Set by the host page; when null, detail groups can't be fetched.
+   * @type {((id: string) => Promise<MappedSchool>) | null}
+   */
+  detailLoader = null;
+  /** @type {Map<string, MappedSchool>} full records fetched for expanded cards, keyed by id (survives re-renders) */
+  #detailCache = new Map();
 
   connectedCallback() {
     this.innerHTML = `
       <section class="results-section" aria-labelledby="results-title">
-        <div class="section-heading results-heading"><div><span class="step">02</span><h2 id="results-title">Results</h2></div><div class="results-actions"><button class="secondary print-button" type="button" hidden>Print</button><button class="secondary export-button" type="button" hidden>Export CSV</button></div></div>
+        <div class="section-heading results-heading"><div><h2 id="results-title">Results</h2></div><div class="results-actions"><button class="secondary print-button" type="button" hidden>Print</button><button class="secondary export-button" type="button" hidden>Export CSV</button></div></div>
         <div class="status">Set your criteria and run a search.</div>
         <form class="result-controls" hidden>
           <label>Filter results<input class="result-query" type="search" placeholder="School or city" autocomplete="off" /></label>
           <label>Predominant degree<select class="predominant-filter">${PREDOMINANT_FILTER_OPTIONS}</select></label>
           <label>Sort by<select class="result-sort"><option value="relevance" selected>Relevance</option><option value="distance-asc">Distance: nearest first</option><option value="name-asc">Name: A–Z</option><option value="enrollment-asc">Enrollment: low to high</option><option value="enrollment-desc">Enrollment: high to low</option><option value="net-price-asc">Net price: low to high</option><option value="admission-rate-desc">Admission rate: high to low</option></select></label>
           <button class="secondary clear-filters" type="button">Reset</button>
+          <details class="religion-filter" hidden>
+            <summary><span class="religion-filter-label">Religious affiliation</span><span class="religion-summary">All</span></summary>
+            <div class="religion-panel"></div>
+          </details>
           <div class="attr-exclude">
             <span class="attr-exclude-label">Hide</span>
             <label class="attr-chip"><input type="checkbox" class="hide-nonresidential" checked />Non-residential</label>
             <label class="attr-chip"><input type="checkbox" class="hide-low-diversity" checked />Low diversity</label>
             <label class="attr-chip"><input type="checkbox" class="hide-low-ft" checked />Low FT faculty</label>
+            <label class="attr-chip"><input type="checkbox" class="hide-noncoed" checked />Non-coed</label>
             <label class="attr-chip favorites-chip"><input type="checkbox" class="favorites-only" />★ Favorites only</label>
           </div>
         </form>
@@ -493,6 +506,9 @@ class CollegeResults extends HTMLElement {
     const controls = /** @type {HTMLFormElement} */ (this.querySelector('.result-controls'));
     controls.addEventListener('submit', (event) => event.preventDefault());
     controls.addEventListener('input', () => this.#update());
+    // Religious-affiliation multi-select: enforce the All/None/Only exclusivity
+    // and refresh the summary label, then re-filter.
+    this.querySelector('.religion-panel')?.addEventListener('change', (event) => this.#handleReligionChange(event));
     // Exclude-states checkboxes live outside the controls form.
     this.querySelector('.state-exclude')?.addEventListener('change', () => {
       const checked = this.querySelectorAll('.state-exclude input:checked');
@@ -509,9 +525,14 @@ class CollegeResults extends HTMLElement {
     this.#grid().addEventListener('click', (event) => this.#handleDirectionsClick(event));
     // Favorite (star) toggles, delegated from the grid.
     this.#grid().addEventListener('click', (event) => this.#handleFavoriteClick(event));
+    // Retry button shown when a card's detail fetch fails.
+    this.#grid().addEventListener('click', (event) => this.#handleDetailRetry(event));
     // Persist each section's collapse/expand choice. `toggle` doesn't bubble, so
     // listen in the capture phase to catch it from any card's <details>.
     this.#grid().addEventListener('toggle', (event) => this.#handleSectionToggle(event), true);
+    // Lazily fetch and render a card's detail groups the first time its
+    // "View all details" disclosure is opened.
+    this.#grid().addEventListener('toggle', (event) => this.#handleDetailsExpand(event), true);
   }
 
   /**
@@ -536,6 +557,66 @@ class CollegeResults extends HTMLElement {
       });
   }
 
+  /**
+   * On first open of a card's "View all details", fetch and render its detail
+   * groups. Ignores the inner section toggles (those carry a data-section, this
+   * fires only for the outer .school-details) and any re-open once loaded.
+   * @param {Event} event
+   */
+  #handleDetailsExpand(event) {
+    const details = event.target;
+    if (!(details instanceof HTMLDetailsElement) || !details.matches('.school-details') || !details.open) return;
+    if (details.dataset.loaded === 'true' || details.dataset.loading === 'true') return;
+    this.#loadDetails(details);
+  }
+
+  /**
+   * Fetch (or reuse a cached) full record for a card and render its detail
+   * groups. Cache hits render synchronously; misses show a placeholder while the
+   * host page's detailLoader runs, and a retryable message on failure.
+   * @param {HTMLDetailsElement} details
+   */
+  async #loadDetails(details) {
+    const id = details.dataset.id;
+    const grid = /** @type {HTMLElement|null} */ (details.querySelector('.detail-grid'));
+    if (!grid) return;
+    if (!id || !this.detailLoader) {
+      grid.innerHTML = '<p class="detail-status detail-error">Details are unavailable.</p>';
+      return;
+    }
+    const cached = this.#detailCache.get(id);
+    if (cached) {
+      grid.innerHTML = this.#detailGroupsHtml(cached, this.#allowedCredentials());
+      details.dataset.loaded = 'true';
+      this.#applyStoredSectionStates(grid);
+      return;
+    }
+    details.dataset.loading = 'true';
+    grid.innerHTML = '<p class="detail-status">Loading details…</p>';
+    try {
+      const school = await this.detailLoader(id);
+      this.#detailCache.set(id, school);
+      grid.innerHTML = this.#detailGroupsHtml(school, this.#allowedCredentials());
+      details.dataset.loaded = 'true';
+      this.#applyStoredSectionStates(grid);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not load details.';
+      grid.innerHTML = `<p class="detail-status detail-error">${escapeHtml(message)}</p><button type="button" class="secondary detail-retry">Retry</button>`;
+      // Leave `loaded` unset so re-opening or Retry attempts the fetch again.
+    } finally {
+      delete details.dataset.loading;
+    }
+  }
+
+  /** @param {MouseEvent} event retry the detail fetch when the in-card Retry button is clicked */
+  #handleDetailRetry(event) {
+    if (!(event.target instanceof Element)) return;
+    const button = event.target.closest('.detail-retry');
+    if (!button) return;
+    const details = button.closest('.school-details');
+    if (details instanceof HTMLDetailsElement) this.#loadDetails(details);
+  }
+
   /** @returns {Record<string, boolean>} */
   #sectionStates() {
     try {
@@ -554,16 +635,19 @@ class CollegeResults extends HTMLElement {
     }
   }
 
-  /** Override each rendered section's default open state with the user's stored choice. */
-  #applyStoredSectionStates() {
+  /**
+   * Override each rendered section's default open state with the user's stored
+   * choice. Scoped to `root` (defaults to the whole grid) so it can be re-run for
+   * a single card after its detail groups are lazily injected.
+   * @param {ParentNode} [root]
+   */
+  #applyStoredSectionStates(root = this.#grid()) {
     const states = this.#sectionStates();
-    this.#grid()
-      .querySelectorAll('details[data-section]')
-      .forEach((el) => {
-        const details = /** @type {HTMLDetailsElement} */ (el);
-        const key = details.dataset.section;
-        if (key && key in states) details.open = states[key];
-      });
+    root.querySelectorAll('details[data-section]').forEach((el) => {
+      const details = /** @type {HTMLDetailsElement} */ (el);
+      const key = details.dataset.section;
+      if (key && key in states) details.open = states[key];
+    });
   }
 
   /** @returns {Set<string>} the persisted favorite school ids */
@@ -761,6 +845,7 @@ class CollegeResults extends HTMLElement {
     this.#allResults = [...value];
     this.#resetControls();
     this.#renderStateChips();
+    this.#renderReligionOptions();
     this.#controls().hidden = value.length === 0;
     this.#update();
   }
@@ -768,6 +853,8 @@ class CollegeResults extends HTMLElement {
   /** Reset filter/sort controls to their defaults. */
   #resetControls() {
     this.#controls().reset();
+    // form.reset() restores each affiliation checkbox to its default (All checked).
+    this.#updateReligionSummary();
     this.#excludedStates = new Set();
     this.querySelectorAll('.state-exclude input').forEach((box) => {
       /** @type {HTMLInputElement} */ (box).checked = false;
@@ -805,6 +892,76 @@ class CollegeResults extends HTMLElement {
             `<label class="state-chip"><input type="checkbox" value="${escapeHtml(state)}" />${escapeHtml(state)}</label>`
         )
         .join('');
+  }
+
+  /**
+   * Build the religious-affiliation multi-select from the affiliations present in
+   * the current results. Three meta options lead: All (no filter, default), None
+   * (secular only), and Any religious; each distinct affiliation follows. Hidden
+   * when no result reports a known affiliation.
+   */
+  #renderReligionOptions() {
+    const details = /** @type {HTMLDetailsElement} */ (this.querySelector('.religion-filter'));
+    const panel = /** @type {HTMLElement} */ (this.querySelector('.religion-panel'));
+    const codes = [
+      ...new Set(
+        this.#allResults
+          .map((school) => school.profile.religiousAffiliation)
+          .filter((code) => code != null && label(RELIGIOUS_AFFILIATION, code) !== NOT_REPORTED)
+          .map(String)
+      )
+    ].sort((a, b) => label(RELIGIOUS_AFFILIATION, a).localeCompare(label(RELIGIOUS_AFFILIATION, b)));
+    details.open = false;
+    if (!codes.length) {
+      details.hidden = true;
+      panel.innerHTML = '';
+      return;
+    }
+    details.hidden = false;
+    const option = (value, text, checked) =>
+      `<label class="religion-option"><input type="checkbox" class="religion-check" value="${escapeHtml(value)}"${checked ? ' checked' : ''} />${escapeHtml(text)}</label>`;
+    panel.innerHTML =
+      option('all', 'All', true) +
+      option('none', 'None (secular)', false) +
+      option('only', 'Any religious', false) +
+      codes.map((code) => option(code, label(RELIGIOUS_AFFILIATION, code), false)).join('');
+    this.#updateReligionSummary();
+  }
+
+  /**
+   * Keep the affiliation checkboxes coherent: checking "All" clears the rest;
+   * checking anything else clears "All"; clearing everything falls back to "All".
+   * @param {Event} event
+   */
+  #handleReligionChange(event) {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement) || !target.classList.contains('religion-check')) return;
+    const checks = /** @type {HTMLInputElement[]} */ ([...this.querySelectorAll('.religion-check')]);
+    const all = checks.find((box) => box.value === 'all');
+    if (target.value === 'all' && target.checked) {
+      checks.forEach((box) => {
+        if (box !== all) box.checked = false;
+      });
+    } else if (target.value !== 'all' && target.checked && all) {
+      all.checked = false;
+    }
+    if (!checks.some((box) => box.checked) && all) all.checked = true;
+    this.#updateReligionSummary();
+    this.#update();
+  }
+
+  /** Reflect the current affiliation selection in the dropdown's summary label. */
+  #updateReligionSummary() {
+    const summary = /** @type {HTMLElement|null} */ (this.querySelector('.religion-summary'));
+    if (!summary) return;
+    const checks = /** @type {HTMLInputElement[]} */ ([...this.querySelectorAll('.religion-check:checked')]);
+    if (!checks.length || checks.some((box) => box.value === 'all')) {
+      summary.textContent = 'All';
+    } else if (checks.length === 1) {
+      summary.textContent = (checks[0].parentElement?.textContent ?? '').trim() || '1 selected';
+    } else {
+      summary.textContent = `${checks.length} selected`;
+    }
   }
 
   /** @param {string} message */
@@ -850,6 +1007,16 @@ class CollegeResults extends HTMLElement {
     const hideNonResidential = /** @type {HTMLInputElement} */ (this.querySelector('.hide-nonresidential')).checked;
     const hideLowDiversity = /** @type {HTMLInputElement} */ (this.querySelector('.hide-low-diversity')).checked;
     const hideLowFt = /** @type {HTMLInputElement} */ (this.querySelector('.hide-low-ft')).checked;
+    const hideNonCoed = /** @type {HTMLInputElement} */ (this.querySelector('.hide-noncoed')).checked;
+    // Religious-affiliation selection. "All" (or nothing) means no restriction;
+    // otherwise a school passes if it matches any chosen option (union).
+    const religion = /** @type {HTMLInputElement[]} */ ([...this.querySelectorAll('.religion-check:checked')]).map(
+      (box) => box.value
+    );
+    const religionAll = religion.length === 0 || religion.includes('all');
+    const religionNone = religion.includes('none');
+    const religionOnly = religion.includes('only');
+    const religionCodes = new Set(religion.filter((value) => value !== 'all' && value !== 'none' && value !== 'only'));
     const favoritesOnly = this.#favoritesOnly();
     const sort = /** @type {HTMLSelectElement} */ (this.querySelector('.result-sort')).value;
     const [field, direction] = sort.split('-');
@@ -868,6 +1035,14 @@ class CollegeResults extends HTMLElement {
         const isNonResidential =
           residentialCharacter(label(CARNEGIE_SIZE_SETTING, school.profile.carnegieSizeSetting)) ===
           'Primarily nonresidential';
+        const isSingleSex = school.profile.menOnly || school.profile.womenOnly;
+        const affiliation = school.profile.religiousAffiliation;
+        const hasAffiliation = affiliation != null && label(RELIGIOUS_AFFILIATION, affiliation) !== NOT_REPORTED;
+        const religionPass =
+          religionAll ||
+          (religionNone && !hasAffiliation) ||
+          (religionOnly && hasAffiliation) ||
+          (hasAffiliation && religionCodes.has(String(affiliation)));
         return (
           (!query || searchable.includes(query)) &&
           (!predominant || Number(school.profile.predominantDegree) === Number(predominant)) &&
@@ -876,6 +1051,8 @@ class CollegeResults extends HTMLElement {
           // A missing diversity score counts as Low (see diversityRating).
           !(hideLowDiversity && diversityRating(school) === 'Low') &&
           !(hideLowFt && ftRate != null && ftFacultyRating(ftRate) === 'Low') &&
+          !(hideNonCoed && isSingleSex) &&
+          religionPass &&
           (!favoritesOnly || (school.id != null && this.#favorites.has(String(school.id))))
         );
       })
@@ -925,6 +1102,28 @@ class CollegeResults extends HTMLElement {
     this.#applyStoredSectionStates();
   }
 
+  /**
+   * The inner markup for a card's "View all details" disclosure — every detail
+   * group plus the programs table and the data-source note. Built from a fully
+   * fetched record, so it's produced lazily on expand rather than at list render.
+   * @param {MappedSchool} school
+   * @param {Set<number>|null} allowedCredentials
+   * @returns {string}
+   */
+  #detailGroupsHtml(school, allowedCredentials) {
+    return (
+      [
+        profileGroup(school),
+        enrollmentGroup(school),
+        facultyGroup(school),
+        admissionsGroup(school),
+        costGroup(school),
+        outcomesGroup(school),
+        programsTable(school, allowedCredentials)
+      ].join('') + `<p class="detail-note">${escapeHtml(LATEST_ALIAS_NOTE)}</p>`
+    );
+  }
+
   /** @param {MappedSchool} school @param {number} index @param {Set<number>|null} allowedCredentials @returns {string} */
   #card(school, index, allowedCredentials) {
     const distanceBadge = this.#hideDistance
@@ -935,15 +1134,6 @@ class CollegeResults extends HTMLElement {
     const designationBadges = school.profile.designations
       .map((d) => `<span title="${escapeHtml(d.title)}">${escapeHtml(d.label)}</span>`)
       .join('');
-    const groups = [
-      profileGroup(school),
-      enrollmentGroup(school),
-      facultyGroup(school),
-      admissionsGroup(school),
-      costGroup(school),
-      outcomesGroup(school),
-      programsTable(school, allowedCredentials)
-    ].join('');
     const favorited = school.id != null && this.#favorites.has(String(school.id));
     const favoriteButton =
       school.id == null
@@ -954,7 +1144,7 @@ class CollegeResults extends HTMLElement {
     const directionsLink = this.#hideDistance
       ? `<a href="#" class="directions-link" data-destination="${escapeHtml(destination)}">Directions ↗</a>`
       : `<a href="${escapeHtml(directionsUrl(destination, DIRECTIONS_ORIGIN))}" target="_blank" rel="noreferrer">Directions ↗</a>`;
-    return `<article class="result-card${locationClass}"><div class="rank-col"><div class="rank">${String(index + 1).padStart(2, '0')}</div>${favoriteButton}</div><div class="school-info"><div class="badges">${distanceBadge}<span>${escapeHtml(ownershipLabel(school.ownershipCode))}</span>${designationBadges}</div><h3>${escapeHtml(school.name)}</h3><p>${escapeHtml(school.location.city ?? '')}, ${escapeHtml(school.location.state ?? '')}</p></div><div class="metrics">${this.#fieldShareTile(school, allowedCredentials)}${selectivityTile(school)}${diversityTile(school)}<div class="enrollment"><strong>${escapeHtml(formatCount(school.enrollment.size))}</strong><span>undergrads</span></div>${residentialTile(school)}${facultyRatioTile(school)}${facultyFtTile(school)}</div><div class="card-links">${school.profile.website ? `<a href="${escapeHtml(school.profile.website)}" target="_blank" rel="noreferrer">Website ↗</a>` : ''}${directionsLink}</div><details class="school-details"><summary>View all details</summary><div class="detail-grid">${groups}</div><p class="detail-note">${escapeHtml(LATEST_ALIAS_NOTE)}</p></details></article>`;
+    return `<article class="result-card${locationClass}"><div class="rank-col"><div class="rank">${String(index + 1).padStart(2, '0')}</div>${favoriteButton}</div><div class="school-info"><div class="badges">${distanceBadge}<span>${escapeHtml(ownershipLabel(school.ownershipCode))}</span>${designationBadges}</div><h3>${escapeHtml(school.name)}</h3><p>${escapeHtml(school.location.city ?? '')}, ${escapeHtml(school.location.state ?? '')}</p></div><div class="metrics">${this.#fieldShareTile(school, allowedCredentials)}${selectivityTile(school)}${diversityTile(school)}<div class="enrollment"><strong>${escapeHtml(formatCount(school.enrollment.size))}</strong><span>undergrads</span></div>${residentialTile(school)}${facultyRatioTile(school)}${facultyFtTile(school)}</div><div class="card-links">${school.profile.website ? `<a href="${escapeHtml(school.profile.website)}" target="_blank" rel="noreferrer">Website ↗</a>` : ''}${directionsLink}</div><details class="school-details"${school.id == null ? '' : ` data-id="${escapeHtml(String(school.id))}"`}><summary>View all details</summary><div class="detail-grid"></div></details></article>`;
   }
 
   #export() {

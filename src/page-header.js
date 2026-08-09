@@ -7,9 +7,9 @@
 
 /** @type {Array<{ key: string, href: string, label: string }>} */
 const NAV_LINKS = [
-  { key: 'location', href: './index.html', label: 'By location' },
-  { key: 'name', href: './name.html', label: 'By name' },
-  { key: 'favorites', href: './favorites.html', label: 'Favorites' }
+  { key: 'location', href: '/', label: 'By location' },
+  { key: 'name', href: '/name/', label: 'By name' },
+  { key: 'favorites', href: '/favorites/', label: 'Favorites' }
 ];
 
 /** @param {string} value @returns {string} */

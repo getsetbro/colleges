@@ -6,7 +6,7 @@ college-results { display: block; }
 
 .hero { padding: 60px 0 0; }
 .page-nav { display: flex; gap: 8px; justify-content: end; }
-.page-nav a { padding: 9px 17px; border: 1px solid #d7d4cb; border-radius: 2px; color: #66736e; font-size: .78rem; font-weight: 700; text-decoration: none; letter-spacing: .02em; transition: border-color .15s, color .15s; }
+.page-nav a { padding: 9px 17px; border: 1px solid #d7d4cb; color: #66736e; font-size: .78rem; font-weight: 700; text-decoration: none; letter-spacing: .02em; transition: border-color .15s, color .15s; }
 .page-nav a:hover { border-color: #c45332; color: #c45332; }
 .page-nav a[aria-current="page"] { background: #183a31; border-color: #183a31; color: #fff; }
 h1, h2, h3, p { margin-top: 0; }
@@ -15,14 +15,12 @@ h1 span { color: #c45332; font-style: italic; }
 .search-card { background: #183a31; color: #fff; padding: 38px; border-radius: 3px; box-shadow: 14px 14px 0 #d4a33d; }
 .section-heading, .section-heading > div { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .section-heading h2 { margin: 0; font: 400 1.7rem 'DM Serif Display', serif; }
-.step { color: #d4a33d; font-size: .72rem; letter-spacing: .12em; }
 .quiet, .hint { color: #a9bbb5; font-size: .78rem; }
 button { border: 0; font: 600 .87rem 'DM Sans', sans-serif; cursor: pointer; }
 button:disabled { cursor: wait; opacity: .6; }
 .hint { margin: 15px 0 0; }
 .results-section { padding: 60px 0; }
 .results-heading { padding-bottom: 24px; border-bottom: 1px solid #d7d4cb; }
-.results-heading .step { color: #c45332; }
 .results-actions { display: flex; gap: 10px; }
 .secondary { padding: 10px 16px; border: 1px solid #183a31; background: transparent; color: #183a31; }
 .status { padding: 22px 0; color: #66736e; font-size: .9rem; }
@@ -40,7 +38,17 @@ button:disabled { cursor: wait; opacity: .6; }
 .attr-exclude { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
 .state-exclude-label, .attr-exclude-label { color: #596762; font-size: .68rem; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }
 .state-chip, .attr-chip { display: inline-flex; align-items: center; gap: 5px; font-size: .78rem; color: #152b25; cursor: pointer; }
-.state-chip input, .attr-chip input { width: auto; height: auto; margin: 0; padding: 0; border: 0; background: none; cursor: pointer; }
+.state-chip input, .attr-chip input, .religion-option input { width: auto; height: auto; margin: 0; padding: 0; border: 0; background: none; cursor: pointer; }
+.religion-filter { grid-column: 1 / -1; position: relative; }
+.religion-filter > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; height: 42px; padding: 0 11px; border: 1px solid #c7c3b9; background: #fbfaf6; color: #152b25; font: 400 .82rem 'DM Sans', sans-serif; cursor: pointer; list-style: none; }
+.religion-filter > summary::-webkit-details-marker { display: none; }
+.religion-filter[open] > summary { border-color: #c45332; box-shadow: 0 0 0 1px #c45332; }
+.religion-filter-label { color: #596762; font-size: .68rem; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }
+.religion-summary { display: inline-flex; align-items: center; gap: 6px; color: #152b25; font-weight: 600; }
+.religion-summary::after { content: '▾'; color: #78827e; font-size: .7rem; }
+.religion-filter[open] .religion-summary::after { content: '▴'; }
+.religion-panel { position: absolute; z-index: 5; left: 0; right: 0; margin-top: 4px; max-height: 280px; overflow-y: auto; display: flex; flex-direction: column; gap: 9px; padding: 12px; background: #fbfaf6; border: 1px solid #c7c3b9; box-shadow: 0 8px 22px rgba(21, 43, 37, .14); }
+.religion-option { display: flex; align-items: center; gap: 8px; font-size: .8rem; color: #152b25; cursor: pointer; }
 .results-grid { display: grid; gap: 10px; }
 .result-card { position: relative; display: grid; grid-template-columns: 50px 1fr auto auto; gap: 20px; align-items: center; padding: 25px; background: #fbfaf6; border: 1px solid #e3dfd5; }
 .result-card:hover { border-color: #d4a33d; }
@@ -66,6 +74,9 @@ h3 { margin-bottom: 3px; font: 400 1.3rem 'DM Serif Display', serif; }
 .school-details { grid-column: 2 / -1; border-top: 1px solid #e3dfd5; padding-top: 14px; }
 .school-details summary { width: max-content; color: #386254; font-size: .78rem; font-weight: 700; cursor: pointer; }
 .detail-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; padding-top: 22px; }
+.detail-status { grid-column: 1 / -1; margin: 0; padding: 8px 0; color: #66736e; font-size: .8rem; }
+.detail-status.detail-error { color: #a83724; }
+.detail-grid .detail-retry { margin-top: 4px; }
 .detail-group h4 { margin: 0 0 9px; color: #c45332; font-size: .7rem; letter-spacing: .09em; text-transform: uppercase; }
 .detail-group-collapsible summary { cursor: pointer; width: max-content; }
 .detail-group-collapsible summary h4 { display: inline; margin: 0; }
