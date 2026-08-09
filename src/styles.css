@@ -42,7 +42,7 @@
 }
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; }
-main { width: min(1120px, calc(100% - 40px)); margin: auto; }
+main { width: min(1120px, calc(100% - 40px)); margin: auto;min-height: 90vh; }
 college-results { display: block; }
 
 .hero { padding: 60px 0 0; }
@@ -74,18 +74,20 @@ button:disabled { cursor: wait; opacity: .6; }
 .result-controls input, .result-controls select { width: 100%; height: 42px; margin-top: 7px; padding: 0 11px; border: 1px solid var(--color-border); border-radius: 0; outline: none; background: var(--color-surface); color: var(--color-ink); font: 400 .82rem 'DM Sans', sans-serif; }
 .result-controls input:focus, .result-controls select:focus { border-color: var(--color-accent); box-shadow: 0 0 0 1px var(--color-accent); }
 .result-controls .secondary { height: 42px; }
-.state-exclude { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: -8px 0 24px; }
+.controls-footer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: -8px 0 24px; }
+.controls-footer[hidden] { display: none; }
+.controls-footer .clear-filters { margin-left: auto; }
+.state-exclude { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
 .state-exclude[hidden] { display: none; }
 .attr-exclude { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
 .state-exclude-label, .attr-exclude-label { color: var(--color-text); font-size: .68rem; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }
 .state-chip, .attr-chip { display: inline-flex; align-items: center; gap: 5px; font-size: .78rem; color: var(--color-ink); cursor: pointer; }
 .state-chip input, .attr-chip input, .religion-option input { width: auto; height: auto; margin: 0; padding: 0; border: 0; background: none; cursor: pointer; }
-.religion-filter { grid-column: 1 / -1; position: relative; }
+.religion-filter { position: relative; margin-top: 7px; text-transform: none; letter-spacing: normal; }
 .religion-filter > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; height: 42px; padding: 0 11px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-ink); font: 400 .82rem 'DM Sans', sans-serif; cursor: pointer; list-style: none; }
 .religion-filter > summary::-webkit-details-marker { display: none; }
 .religion-filter[open] > summary { border-color: var(--color-accent); box-shadow: 0 0 0 1px var(--color-accent); }
-.religion-filter-label { color: var(--color-text); font-size: .68rem; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }
-.religion-summary { display: inline-flex; align-items: center; gap: 6px; color: var(--color-ink); font-weight: 600; }
+.religion-summary { display: flex; flex: 1; align-items: center; justify-content: space-between; gap: 6px; color: var(--color-ink); font-weight: 600; }
 .religion-summary::after { content: '▾'; color: var(--color-text); font-size: .7rem; }
 .religion-filter[open] .religion-summary::after { content: '▴'; }
 .religion-panel { position: absolute; z-index: 5; left: 0; right: 0; margin-top: 4px; max-height: 280px; overflow-y: auto; display: flex; flex-direction: column; gap: 9px; padding: 12px; background: var(--color-surface); border: 1px solid var(--color-border); box-shadow: 0 8px 22px var(--color-shadow); }
@@ -161,7 +163,7 @@ footer a { color: var(--color-gold); text-decoration: none; }
 
 /* Print: only the results list, showing each card's school-info and metrics. */
 @media print {
-  .hero, .search-card, footer, .section-heading, .status, .result-controls, .state-exclude, .palette { display: none !important; }
+  .hero, .search-card, footer, .section-heading, .status, .result-controls, .controls-footer, .palette { display: none !important; }
   main { width: 100%; }
   .results-section { padding: 0; }
   .results-grid { display: block; }

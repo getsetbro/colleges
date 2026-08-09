@@ -499,12 +499,11 @@ class CollegeResults extends HTMLElement {
         <form class="result-controls" hidden>
           <label>Filter results<input class="result-query" type="search" placeholder="School or city" autocomplete="off" /></label>
           <label>Predominant degree<select class="predominant-filter">${PREDOMINANT_FILTER_OPTIONS}</select></label>
-          <label>Sort by<select class="result-sort"><option value="relevance" selected>Relevance</option><option value="distance-asc">Distance: nearest first</option><option value="name-asc">Name: A–Z</option><option value="enrollment-asc">Enrollment: low to high</option><option value="enrollment-desc">Enrollment: high to low</option><option value="net-price-asc">Net price: low to high</option><option value="admission-rate-desc">Admission rate: high to low</option></select></label>
-          <button class="secondary clear-filters" type="button">Reset</button>
-          <details class="religion-filter" hidden>
-            <summary><span class="religion-filter-label">Religious affiliation</span><span class="religion-summary">All</span></summary>
+          <label>Sort by<select class="result-sort"><option value="relevance" selected>Relevance</option><option value="distance-asc">Distance: nearest first</option><option value="name-asc">Name: A–Z</option><option value="enrollment-asc">Enrollment: low to high</option><option value="enrollment-desc">Enrollment: high to low</option><option value="net-price-asc">Net price: low to high</option><option value="admission-rate-desc">Admission rate: high to low</option><option value="ratio-desc">Student-to-faculty ratio: high to low</option></select></label>
+          <label class="religion-field" hidden>Religious affiliation<details class="religion-filter">
+            <summary><span class="religion-summary">All</span></summary>
             <div class="religion-panel"></div>
-          </details>
+          </details></label>
           <div class="attr-exclude">
             <span class="attr-exclude-label">Hide</span>
             <label class="attr-chip"><input type="checkbox" class="hide-nonresidential" checked />Non-residential</label>
@@ -514,7 +513,10 @@ class CollegeResults extends HTMLElement {
             <label class="attr-chip favorites-chip"><input type="checkbox" class="favorites-only" />★ Favorites only</label>
           </div>
         </form>
-        <div class="state-exclude" hidden></div>
+        <div class="controls-footer">
+          <div class="state-exclude" hidden></div>
+          <button class="secondary clear-filters" type="button">Reset</button>
+        </div>
         <div class="results-grid" aria-live="polite"></div>
       </section>`;
     this.#favorites = this.#loadFavorites();
@@ -752,6 +754,7 @@ class CollegeResults extends HTMLElement {
     status.textContent = 'Querying College Scorecard…';
     this.#grid().innerHTML = '';
     this.#controls().hidden = true;
+    this.#controlsFooter().hidden = true;
     /** @type {HTMLElement} */ (this.querySelector('.state-exclude')).hidden = true;
     this.#exportButton().hidden = true;
     this.#printButton().hidden = true;
@@ -799,6 +802,7 @@ class CollegeResults extends HTMLElement {
   set hideControls(value) {
     this.#hideControls = Boolean(value);
     this.#controls().hidden = this.#hideControls || this.#allResults.length === 0;
+    this.#controlsFooter().hidden = this.#controls().hidden;
     if (this.#hideControls) {
       /** @type {HTMLElement} */ (this.querySelector('.state-exclude')).hidden = true;
     }
@@ -878,6 +882,7 @@ class CollegeResults extends HTMLElement {
       this.#renderReligionOptions();
     }
     this.#controls().hidden = this.#hideControls || value.length === 0;
+    this.#controlsFooter().hidden = this.#controls().hidden;
     this.#update();
   }
 
@@ -932,6 +937,7 @@ class CollegeResults extends HTMLElement {
    * when no result reports a known affiliation.
    */
   #renderReligionOptions() {
+    const field = /** @type {HTMLElement} */ (this.querySelector('.religion-field'));
     const details = /** @type {HTMLDetailsElement} */ (this.querySelector('.religion-filter'));
     const panel = /** @type {HTMLElement} */ (this.querySelector('.religion-panel'));
     const codes = [
@@ -944,11 +950,11 @@ class CollegeResults extends HTMLElement {
     ].sort((a, b) => label(RELIGIOUS_AFFILIATION, a).localeCompare(label(RELIGIOUS_AFFILIATION, b)));
     details.open = false;
     if (!codes.length) {
-      details.hidden = true;
+      field.hidden = true;
       panel.innerHTML = '';
       return;
     }
-    details.hidden = false;
+    field.hidden = false;
     const option = (value, text, checked) =>
       `<label class="religion-option"><input type="checkbox" class="religion-check" value="${escapeHtml(value)}"${checked ? ' checked' : ''} />${escapeHtml(text)}</label>`;
     panel.innerHTML =
@@ -1004,6 +1010,7 @@ class CollegeResults extends HTMLElement {
     status.textContent = message;
     this.#grid().innerHTML = '';
     this.#controls().hidden = true;
+    this.#controlsFooter().hidden = true;
     /** @type {HTMLElement} */ (this.querySelector('.state-exclude')).hidden = true;
     this.#exportButton().hidden = true;
     this.#printButton().hidden = true;
@@ -1012,6 +1019,11 @@ class CollegeResults extends HTMLElement {
   /** @returns {HTMLFormElement} */
   #controls() {
     return /** @type {HTMLFormElement} */ (this.querySelector('.result-controls'));
+  }
+
+  /** @returns {HTMLElement} The exclude-states + Reset row; shown/hidden with the controls form. */
+  #controlsFooter() {
+    return /** @type {HTMLElement} */ (this.querySelector('.controls-footer'));
   }
 
   /** @returns {HTMLElement} */
@@ -1062,7 +1074,8 @@ class CollegeResults extends HTMLElement {
       distance: (school) => school.location.distance,
       enrollment: (school) => school.enrollment.size,
       'net-price': (school) => school.cost.netPriceOverall,
-      'admission-rate': (school) => school.admissions.admissionRate
+      'admission-rate': (school) => school.admissions.admissionRate,
+      ratio: (school) => school.faculty.studentRatio
     };
     const getter = getters[field];
     const results = this.#allResults
