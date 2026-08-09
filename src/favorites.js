@@ -1,6 +1,7 @@
 // @ts-check
 import './styles.css';
 import './page-header.js';
+import './theme-toggle.js';
 import { FAVORITES_KEY } from './college-results.js';
 import { searchByIds, fetchSchoolDetails } from './scorecard-api.js';
 import { mapSchool } from './scorecard-fields.js';

@@ -499,7 +499,7 @@ class CollegeResults extends HTMLElement {
         <form class="result-controls" hidden>
           <label>Filter results<input class="result-query" type="search" placeholder="School or city" autocomplete="off" /></label>
           <label>Predominant degree<select class="predominant-filter">${PREDOMINANT_FILTER_OPTIONS}</select></label>
-          <label>Sort by<select class="result-sort"><option value="relevance" selected>Relevance</option><option value="distance-asc">Distance: nearest first</option><option value="name-asc">Name: A–Z</option><option value="enrollment-asc">Enrollment: low to high</option><option value="enrollment-desc">Enrollment: high to low</option><option value="net-price-asc">Net price: low to high</option><option value="admission-rate-desc">Admission rate: high to low</option><option value="ratio-desc">Student-to-faculty ratio: high to low</option></select></label>
+          <label>Sort by<select class="result-sort"><option value="admission-rate-desc">Admission rate: high to low</option><option value="distance-asc">Distance: nearest first</option><option value="enrollment-desc">Enrollment: high to low</option><option value="enrollment-asc">Enrollment: low to high</option><option value="name-asc">Name: A–Z</option><option value="net-price-asc">Net price: low to high</option><option value="relevance" selected>Relevance</option><option value="ratio-desc">Student-to-faculty ratio: high to low</option></select></label>
           <label class="religion-field" hidden>Religious affiliation<details class="religion-filter">
             <summary><span class="religion-summary">All</span></summary>
             <div class="religion-panel"></div>
@@ -513,7 +513,7 @@ class CollegeResults extends HTMLElement {
             <label class="attr-chip favorites-chip"><input type="checkbox" class="favorites-only" />★ Favorites only</label>
           </div>
         </form>
-        <div class="controls-footer">
+        <div class="controls-footer" hidden>
           <div class="state-exclude" hidden></div>
           <button class="secondary clear-filters" type="button">Reset</button>
         </div>

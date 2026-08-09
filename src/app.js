@@ -1,6 +1,7 @@
 // @ts-check
 import './styles.css';
 import './page-header.js';
+import './theme-toggle.js';
 import './search-form.js';
 import './college-results.js';
 import { search, fetchSchoolDetails } from './scorecard-api.js';
