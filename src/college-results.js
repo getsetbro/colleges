@@ -512,11 +512,11 @@ class CollegeResults extends HTMLElement {
             <label class="attr-chip"><input type="checkbox" class="hide-noncoed" checked />Non-coed</label>
             <label class="attr-chip favorites-chip"><input type="checkbox" class="favorites-only" />★ Favorites only</label>
           </div>
+          <div class="controls-footer">
+            <div class="state-exclude" hidden></div>
+            <button class="secondary clear-filters" type="button">Reset</button>
+          </div>
         </form>
-        <div class="controls-footer" hidden>
-          <div class="state-exclude" hidden></div>
-          <button class="secondary clear-filters" type="button">Reset</button>
-        </div>
         <div class="results-grid" aria-live="polite"></div>
       </section>`;
     this.#favorites = this.#loadFavorites();
@@ -754,7 +754,6 @@ class CollegeResults extends HTMLElement {
     status.textContent = 'Querying College Scorecard…';
     this.#grid().innerHTML = '';
     this.#controls().hidden = true;
-    this.#controlsFooter().hidden = true;
     /** @type {HTMLElement} */ (this.querySelector('.state-exclude')).hidden = true;
     this.#exportButton().hidden = true;
     this.#printButton().hidden = true;
@@ -802,7 +801,6 @@ class CollegeResults extends HTMLElement {
   set hideControls(value) {
     this.#hideControls = Boolean(value);
     this.#controls().hidden = this.#hideControls || this.#allResults.length === 0;
-    this.#controlsFooter().hidden = this.#controls().hidden;
     if (this.#hideControls) {
       /** @type {HTMLElement} */ (this.querySelector('.state-exclude')).hidden = true;
     }
@@ -882,7 +880,6 @@ class CollegeResults extends HTMLElement {
       this.#renderReligionOptions();
     }
     this.#controls().hidden = this.#hideControls || value.length === 0;
-    this.#controlsFooter().hidden = this.#controls().hidden;
     this.#update();
   }
 
@@ -1010,7 +1007,6 @@ class CollegeResults extends HTMLElement {
     status.textContent = message;
     this.#grid().innerHTML = '';
     this.#controls().hidden = true;
-    this.#controlsFooter().hidden = true;
     /** @type {HTMLElement} */ (this.querySelector('.state-exclude')).hidden = true;
     this.#exportButton().hidden = true;
     this.#printButton().hidden = true;
@@ -1019,11 +1015,6 @@ class CollegeResults extends HTMLElement {
   /** @returns {HTMLFormElement} */
   #controls() {
     return /** @type {HTMLFormElement} */ (this.querySelector('.result-controls'));
-  }
-
-  /** @returns {HTMLElement} The exclude-states + Reset row; shown/hidden with the controls form. */
-  #controlsFooter() {
-    return /** @type {HTMLElement} */ (this.querySelector('.controls-footer'));
   }
 
   /** @returns {HTMLElement} */
