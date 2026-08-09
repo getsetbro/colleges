@@ -1068,7 +1068,11 @@ class CollegeResults extends HTMLElement {
     const religionCodes = new Set(religion.filter((value) => value !== 'all' && value !== 'none' && value !== 'only'));
     const favoritesOnly = this.#favoritesOnly();
     const sort = /** @type {HTMLSelectElement} */ (this.querySelector('.result-sort')).value;
-    const [field, direction] = sort.split('-');
+    // Split on the last hyphen only: field names can themselves contain hyphens
+    // (e.g. "net-price-asc" → field "net-price", direction "asc").
+    const lastHyphen = sort.lastIndexOf('-');
+    const field = lastHyphen === -1 ? sort : sort.slice(0, lastHyphen);
+    const direction = lastHyphen === -1 ? '' : sort.slice(lastHyphen + 1);
     /** @type {Record<string, (school: MappedSchool) => number|undefined>} */
     const getters = {
       distance: (school) => school.location.distance,
