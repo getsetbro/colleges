@@ -137,8 +137,7 @@ function profileGroup(school) {
       ['Residential character', residentialCharacter(label(CARNEGIE_SIZE_SETTING, p.carnegieSizeSetting))],
       ['Main campus', p.mainCampus === 1 ? 'Yes' : p.mainCampus === 0 ? 'No (branch)' : NOT_REPORTED],
       ['Branch campuses', formatCount(p.branches, { zeroOk: true })],
-      ['Religious affiliation', label(RELIGIOUS_AFFILIATION, p.religiousAffiliation)],
-      ['Website', linkValue(p.website, 'Homepage')]
+      ['Religious affiliation', label(RELIGIOUS_AFFILIATION, p.religiousAffiliation)]
     ],
     'IPEDS'
   );
@@ -405,12 +404,12 @@ function selectivityTile(school) {
   // sub-100% admission rate yet still admit all eligible applicants.
   if (school.profile.openAdmissionsPolicy === 1) {
     const title = `Open admissions — admits all eligible applicants${rate == null ? '' : ` (accepts ${formatPercent(rate)})`}`;
-    return `<div class="selectivity" title="${escapeHtml(title)}"><strong>Open</strong><span>selective</span></div>`;
+    return `<div class="selectivity" data-tip="${escapeHtml(title)}"><strong>Open</strong><span>selective</span></div>`;
   }
   if (rate == null)
     return `<div class="selectivity"><strong>${escapeHtml(NOT_REPORTED)}</strong><span>selective</span></div>`;
   const title = `Accepts ${formatPercent(rate)} of applicants`;
-  return `<div class="selectivity" title="${escapeHtml(title)}"><strong>${escapeHtml(selectivityLabel(rate))}</strong><span>selective</span></div>`;
+  return `<div class="selectivity" data-tip="${escapeHtml(title)}"><strong>${escapeHtml(selectivityLabel(rate))}</strong><span>selective</span></div>`;
 }
 
 /** @param {MappedSchool} school @returns {string} a diversity tile for the result card */
@@ -419,19 +418,33 @@ function diversityTile(school) {
   const title =
     index == null
       ? 'No race/ethnicity data reported — treated as low diversity'
-      : `Diversity index ${Math.round(index * 100)}% — chance two random students differ in race/ethnicity`;
-  return `<div class="diversity" title="${escapeHtml(title)}"><strong>${escapeHtml(diversityRating(school))}</strong><span>diversity</span></div>`;
+      : 'Diversity index — the chance two random students differ in race/ethnicity. Higher is more diverse.';
+  const value = index == null ? NOT_REPORTED : `${Math.round(index * 100)}%`;
+  return `<div class="diversity" data-tip="${escapeHtml(title)}"><strong>${escapeHtml(value)}</strong><span>diversity</span></div>`;
 }
 
 /** @param {MappedSchool} school @returns {string} a residential-character tile for the result card */
 function residentialTile(school) {
   const descriptor = residentialCharacter(label(CARNEGIE_SIZE_SETTING, school.profile.carnegieSizeSetting));
-  const short = { 'Highly residential': 'High', 'Primarily residential': 'Mid', 'Primarily nonresidential': 'Non' }[
-    descriptor
-  ];
-  if (!short)
+  // Carnegie residential character reflects the share of undergraduates living on
+  // campus (and attending full-time) — spell that out in the tooltip.
+  const meta = {
+    'Highly residential': {
+      short: 'High',
+      tip: 'Highly residential: at least half of undergraduates live on campus and most attend full-time — a traditional residential campus.'
+    },
+    'Primarily residential': {
+      short: 'Mid',
+      tip: 'Primarily residential: 25–49% of undergraduates live on campus, with at least half attending full-time.'
+    },
+    'Primarily nonresidential': {
+      short: 'Non',
+      tip: 'Primarily nonresidential: fewer than 25% of undergraduates live on campus — largely a commuter school.'
+    }
+  }[descriptor];
+  if (!meta)
     return `<div class="residential"><strong>${escapeHtml(NOT_REPORTED)}</strong><span>residential</span></div>`;
-  return `<div class="residential" title="${escapeHtml(descriptor)}"><strong>${escapeHtml(short)}</strong><span>residential</span></div>`;
+  return `<div class="residential" data-tip="${escapeHtml(meta.tip)}"><strong>${escapeHtml(meta.short)}</strong><span>residential</span></div>`;
 }
 
 /** @param {MappedSchool} school @returns {string} a student-to-faculty ratio tile for the result card */
@@ -439,7 +452,7 @@ function facultyRatioTile(school) {
   const ratio = school.faculty.studentRatio;
   if (ratio == null)
     return `<div class="faculty-ratio"><strong>${escapeHtml(NOT_REPORTED)}</strong><span>teacher</span></div>`;
-  return `<div class="faculty-ratio" title="Undergraduate students per faculty member"><strong>1:${Math.round(ratio)}</strong><span>teacher</span></div>`;
+  return `<div class="faculty-ratio" data-tip="Student-to-faculty ratio: about 1 faculty member for every ${Math.round(ratio)} undergraduates."><strong>1:${Math.round(ratio)}</strong><span>teacher</span></div>`;
 }
 
 /** @param {MappedSchool} school @returns {string} a full-time faculty tile for the result card */
@@ -447,7 +460,7 @@ function facultyFtTile(school) {
   const rate = school.faculty.fullTimeRate;
   if (rate == null)
     return `<div class="faculty-ft"><strong>${escapeHtml(NOT_REPORTED)}</strong><span>FT faculty</span></div>`;
-  return `<div class="faculty-ft" title="Share of faculty employed full-time"><strong>${Math.round(rate * 100)}%</strong><span>FT faculty</span></div>`;
+  return `<div class="faculty-ft" data-tip="Share of faculty employed full-time"><strong>${Math.round(rate * 100)}%</strong><span>FT faculty</span></div>`;
 }
 
 class CollegeResults extends HTMLElement {
@@ -459,6 +472,8 @@ class CollegeResults extends HTMLElement {
   #originState = null;
   /** @type {boolean} hide the distance badge and distance sort (e.g. for name searches with no origin) */
   #hideDistance = false;
+  /** @type {boolean} hide the filter/sort controls entirely and show every result unfiltered (e.g. name & favorites pages) */
+  #hideControls = false;
   /** @type {string} field-of-study term from the search, used to rank the Relevance sort */
   #relevanceTerm = '';
   /** @type {Set<string>} upper-cased state abbreviations to exclude from the results */
@@ -697,7 +712,7 @@ class CollegeResults extends HTMLElement {
     button.classList.toggle('is-favorite', favorited);
     button.setAttribute('aria-pressed', String(favorited));
     const buttonLabel = favorited ? 'Remove from favorites' : 'Save to favorites';
-    button.title = buttonLabel;
+    button.dataset.tip = buttonLabel;
     button.setAttribute('aria-label', buttonLabel);
     button.innerHTML = favoriteButtonInner(favorited);
   }
@@ -776,6 +791,20 @@ class CollegeResults extends HTMLElement {
   }
 
   /**
+   * When true, hide the filter/sort controls (and the state/affiliation choosers)
+   * and show every result unfiltered — used by the name and favorites pages,
+   * where filtering the list would be surprising.
+   * @param {boolean} value
+   */
+  set hideControls(value) {
+    this.#hideControls = Boolean(value);
+    this.#controls().hidden = this.#hideControls || this.#allResults.length === 0;
+    if (this.#hideControls) {
+      /** @type {HTMLElement} */ (this.querySelector('.state-exclude')).hidden = true;
+    }
+  }
+
+  /**
    * Field-of-study term from the search; the Relevance sort ranks schools by their
    * highest matching-program share. Set before `results` so the first sort sees it.
    * @param {string} value
@@ -837,16 +866,18 @@ class CollegeResults extends HTMLElement {
     const share = this.#fieldShare(school, allowedCredentials);
     const value = share == null ? NOT_REPORTED : `${Math.round(share * 100)}%`;
     const displayTerm = term.charAt(0).toUpperCase() + term.slice(1);
-    return `<div class="field-share" title="Share of degrees in ${escapeHtml(term)}"><strong>${escapeHtml(value)}</strong><span>${escapeHtml(displayTerm)}</span></div>`;
+    return `<div class="field-share" data-tip="Share of degrees in ${escapeHtml(term)}"><strong>${escapeHtml(value)}</strong><span>${escapeHtml(displayTerm)}</span></div>`;
   }
 
   /** @param {MappedSchool[]} value */
   set results(value) {
     this.#allResults = [...value];
     this.#resetControls();
-    this.#renderStateChips();
-    this.#renderReligionOptions();
-    this.#controls().hidden = value.length === 0;
+    if (!this.#hideControls) {
+      this.#renderStateChips();
+      this.#renderReligionOptions();
+    }
+    this.#controls().hidden = this.#hideControls || value.length === 0;
     this.#update();
   }
 
@@ -999,6 +1030,12 @@ class CollegeResults extends HTMLElement {
   }
 
   #update() {
+    // With the controls hidden (name & favorites pages), skip filtering/sorting
+    // and render results as given — the list is already the set the user wants.
+    if (this.#hideControls) {
+      this.#render(this.#allResults, this.#allowedCredentials());
+      return;
+    }
     const query = /** @type {HTMLInputElement} */ (this.querySelector('.result-query')).value
       .trim()
       .toLocaleLowerCase();
@@ -1132,13 +1169,16 @@ class CollegeResults extends HTMLElement {
     // Highlight in-state schools; out-of-state and name-search cards stay neutral.
     const locationClass = this.#originState && !this.#isOutOfState(school) ? ' in-state' : '';
     const designationBadges = school.profile.designations
-      .map((d) => `<span title="${escapeHtml(d.title)}">${escapeHtml(d.label)}</span>`)
+      .map(
+        (d) =>
+          `<span data-tip="${escapeHtml(d.title)}" aria-label="${escapeHtml(d.title)}">${escapeHtml(d.label)}</span>`
+      )
       .join('');
     const favorited = school.id != null && this.#favorites.has(String(school.id));
     const favoriteButton =
       school.id == null
         ? ''
-        : `<button type="button" class="favorite-toggle${favorited ? ' is-favorite' : ''}" data-id="${escapeHtml(String(school.id))}" aria-pressed="${favorited}" title="${favorited ? 'Remove from favorites' : 'Save to favorites'}" aria-label="${favorited ? 'Remove from favorites' : 'Save to favorites'}">${favoriteButtonInner(favorited)}</button>`;
+        : `<button type="button" class="favorite-toggle${favorited ? ' is-favorite' : ''}" data-id="${escapeHtml(String(school.id))}" aria-pressed="${favorited}" data-tip="${favorited ? 'Remove from favorites' : 'Save to favorites'}" aria-label="${favorited ? 'Remove from favorites' : 'Save to favorites'}">${favoriteButtonInner(favorited)}</button>`;
     const destination = directionsDestination(school);
     // With no search origin (name search), defer the origin to a click-time ZIP prompt.
     const directionsLink = this.#hideDistance

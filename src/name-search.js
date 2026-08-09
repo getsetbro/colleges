@@ -13,6 +13,8 @@ const collegeResults = /** @type {any} */ (document.querySelector('college-resul
 
 // A name search has no origin point, so distance is meaningless here.
 collegeResults.hideDistance = true;
+// A name search is already the user's targeted lookup — no result filter/sort controls.
+collegeResults.hideControls = true;
 // Full record for a school is fetched only when its "View all details" expands.
 collegeResults.detailLoader = async (/** @type {string} */ id) => mapSchool(await fetchSchoolDetails(id, API_KEY));
 

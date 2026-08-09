@@ -11,6 +11,8 @@ const collegeResults = /** @type {any} */ (document.querySelector('college-resul
 
 // The favorites page has no search origin, so distance is meaningless here.
 collegeResults.hideDistance = true;
+// Favorites are the user's curated set — show them all, no filter/sort controls.
+collegeResults.hideControls = true;
 // Full record for a school is fetched only when its "View all details" expands.
 collegeResults.detailLoader = async (/** @type {string} */ id) => mapSchool(await fetchSchoolDetails(id, API_KEY));
 collegeResults.emptyMessage = 'No saved schools yet. Select “Save” on any result to collect it here.';
