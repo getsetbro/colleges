@@ -338,6 +338,46 @@ export function programFamilyKey(code) {
 }
 
 /**
+ * Normalize a program title for comparison: lower-cased, trimmed, and with the
+ * trailing period the API appends removed. The search form's saved list (see
+ * scripts/build-programs.js) already strips that period, so this lets a selected
+ * title match a school's raw program title exactly.
+ * @param {*} title
+ * @returns {string}
+ */
+export function normalizeProgramTitle(title) {
+  return String(title ?? '')
+    .trim()
+    .replace(/\.$/, '')
+    .toLocaleLowerCase();
+}
+
+/**
+ * Whether a school's program title is the selected field of study.
+ * @param {*} programTitle
+ * @param {string} selected a title chosen from the canonical program list
+ * @returns {boolean}
+ */
+export function fieldMatches(programTitle, selected) {
+  return programTitle != null && normalizeProgramTitle(programTitle) === normalizeProgramTitle(selected);
+}
+
+/**
+ * A compact label for a long program title: just its first word, with a trailing
+ * ellipsis when more words follow. Used where the full title won't fit (result
+ * tiles, field-of-study chips) — the full name still lives in a tooltip/title.
+ * E.g. "English Language and Literature, General" → "English…", "Nursing" → "Nursing".
+ * @param {*} title
+ * @returns {string}
+ */
+export function firstWordLabel(title) {
+  const text = String(title ?? '').trim();
+  if (!text) return text;
+  const first = text.split(/\s+/)[0].replace(/[,;:]+$/, '');
+  return /\s/.test(text) ? `${first}…` : first;
+}
+
+/**
  * Special-designation flags (value 1 = applies). Rendered as badges; `title`
  * supplies the hover tooltip explaining each designation.
  * @type {Array<{key: string, label: string, title: string}>}
