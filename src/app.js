@@ -1,10 +1,11 @@
 // @ts-check
 import './styles.css';
 import './page-header.js';
+import './theme-toggle.js';
 import './search-form.js';
 import './college-results.js';
 import { search, fetchSchoolDetails } from './scorecard-api.js';
-import { mapSchool } from './scorecard-fields.js';
+import { mapSchool, fieldMatches } from './scorecard-fields.js';
 
 const API_KEY = import.meta.env.VITE_DATA_GOV_API_KEY;
 
@@ -82,12 +83,14 @@ searchForm.addEventListener('search', async (/** @type {CustomEvent} */ event) =
   try {
     const [schools, zipLocation] = await Promise.all([search(event.detail, API_KEY), getZipLocation(event.detail.zip)]);
     const origin = zipLocation?.coordinates ?? null;
-    // A field of study entered in the search form matches against a school's full
-    // list of fields of study (programs), distinct from the results' popular-program filter.
-    const fieldOfStudy = String(event.detail.fieldOfStudy ?? '').toLocaleLowerCase();
+    // Fields of study chosen in the search form match against a school's full list
+    // of programs, distinct from the results' popular-program filter. Titles come
+    // from the same canonical list, so match by normalized equality (see fieldMatches).
+    /** @type {string[]} */
+    const fieldsOfStudy = Array.isArray(event.detail.fieldsOfStudy) ? event.detail.fieldsOfStudy : [];
     collegeResults.originState = zipLocation?.state ?? null;
-    // Rank the Relevance sort by this field of study; must be set before `results`.
-    collegeResults.relevanceTerm = fieldOfStudy;
+    // Rank the Relevance sort by these fields of study; must be set before `results`.
+    collegeResults.relevanceTerms = fieldsOfStudy;
     collegeResults.results = schools
       .map((school) => {
         const lat = Number(school['location.lat']);
@@ -98,9 +101,12 @@ searchForm.addEventListener('search', async (/** @type {CustomEvent} */ event) =
         ]);
         return mapSchool(school, distance);
       })
+      // Keep schools offering at least one of the chosen programs; relevance then
+      // ranks those offering more of them first.
       .filter(
         (school) =>
-          !fieldOfStudy || school.academics.programs.some((p) => p.title?.toLocaleLowerCase().includes(fieldOfStudy))
+          !fieldsOfStudy.length ||
+          fieldsOfStudy.some((term) => school.academics.programs.some((p) => fieldMatches(p.title, term)))
       )
       .sort((a, b) => a.name.localeCompare(b.name));
   } catch (error) {

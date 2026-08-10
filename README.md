@@ -15,11 +15,11 @@ The environment variable must be named `VITE_DATA_GOV_API_KEY`.
 
 > **API-key visibility:** `.env` is gitignored, but Vite embeds `VITE_*` variables in the browser bundle. The key is therefore visible to visitors of the deployed site. A server-side proxy is required to keep it secret.
 
-## GitHub Pages
+## Deployment (Vercel)
 
-1. Create a GitHub repository and push this project.
-2. Add the key under **Settings → Secrets and variables → Actions** as `DATA_GOV_API_KEY`.
-3. Add the workflow below as `.github/workflows/deploy.yml`, or deploy the local `dist/` output from another workflow.
-4. In **Settings → Pages**, choose **GitHub Actions** as the source.
+This project deploys to Vercel (see `.vercel/project.json`). Vercel auto-detects the Vite framework and runs `npm run build`, serving the `dist/` output.
 
-The included workflow injects the key during `npm run build`. Vite uses relative asset paths, so the site works under a repository subpath.
+1. Add the key under **Project → Settings → Environment Variables** as `VITE_DATA_GOV_API_KEY` (for the Production, Preview, and Development environments as needed). It must be present at **build time** — Vite inlines it into the bundle during `npm run build`.
+2. Push to the connected Git branch, or run `vercel --prod` from the CLI, to deploy.
+
+Vite uses relative asset paths (`base: './'`), so the build is portable across hosts.

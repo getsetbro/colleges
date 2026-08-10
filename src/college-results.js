@@ -11,6 +11,8 @@ import {
   TEST_REQUIREMENTS,
   CREDENTIAL_LEVEL,
   LATEST_ALIAS_NOTE,
+  fieldMatches,
+  firstWordLabel,
   label,
   formatCurrency,
   formatCount,
@@ -474,8 +476,8 @@ class CollegeResults extends HTMLElement {
   #hideDistance = false;
   /** @type {boolean} hide the filter/sort controls entirely and show every result unfiltered (e.g. name & favorites pages) */
   #hideControls = false;
-  /** @type {string} field-of-study term from the search, used to rank the Relevance sort */
-  #relevanceTerm = '';
+  /** @type {string[]} fields of study from the search, used to rank the Relevance sort */
+  #relevanceTerms = [];
   /** @type {Set<string>} upper-cased state abbreviations to exclude from the results */
   #excludedStates = new Set();
   /** @type {Set<string>} school ids the user has favorited; loaded from and persisted to localStorage */
@@ -499,22 +501,23 @@ class CollegeResults extends HTMLElement {
         <form class="result-controls" hidden>
           <label>Filter results<input class="result-query" type="search" placeholder="School or city" autocomplete="off" /></label>
           <label>Predominant degree<select class="predominant-filter">${PREDOMINANT_FILTER_OPTIONS}</select></label>
-          <label>Sort by<select class="result-sort"><option value="relevance" selected>Relevance</option><option value="distance-asc">Distance: nearest first</option><option value="name-asc">Name: A–Z</option><option value="enrollment-asc">Enrollment: low to high</option><option value="enrollment-desc">Enrollment: high to low</option><option value="net-price-asc">Net price: low to high</option><option value="admission-rate-desc">Admission rate: high to low</option></select></label>
-          <button class="secondary clear-filters" type="button">Reset</button>
-          <details class="religion-filter" hidden>
-            <summary><span class="religion-filter-label">Religious affiliation</span><span class="religion-summary">All</span></summary>
+          <label>Sort by<select class="result-sort"><option value="admission-rate-desc">Admission rate: high to low</option><option value="distance-asc">Distance: nearest first</option><option value="enrollment-desc">Enrollment: high to low</option><option value="enrollment-asc">Enrollment: low to high</option><option value="name-asc">Name: A–Z</option><option value="net-price-asc">Net price: low to high</option><option value="relevance" selected>Relevance</option><option value="ratio-desc">Student-to-faculty ratio: high to low</option></select></label>
+          <label class="religion-field" hidden>Religious affiliation<details class="religion-filter">
+            <summary><span class="religion-summary">All</span></summary>
             <div class="religion-panel"></div>
-          </details>
+          </details></label>
           <div class="attr-exclude">
             <span class="attr-exclude-label">Hide</span>
             <label class="attr-chip"><input type="checkbox" class="hide-nonresidential" checked />Non-residential</label>
             <label class="attr-chip"><input type="checkbox" class="hide-low-diversity" checked />Low diversity</label>
             <label class="attr-chip"><input type="checkbox" class="hide-low-ft" checked />Low FT faculty</label>
             <label class="attr-chip"><input type="checkbox" class="hide-noncoed" checked />Non-coed</label>
-            <label class="attr-chip favorites-chip"><input type="checkbox" class="favorites-only" />★ Favorites only</label>
+          </div>
+          <div class="controls-footer">
+            <div class="state-exclude" hidden></div>
+            <button class="secondary clear-filters" type="button">Reset</button>
           </div>
         </form>
-        <div class="state-exclude" hidden></div>
         <div class="results-grid" aria-live="polite"></div>
       </section>`;
     this.#favorites = this.#loadFavorites();
@@ -524,6 +527,11 @@ class CollegeResults extends HTMLElement {
     // Religious-affiliation multi-select: enforce the All/None/Only exclusivity
     // and refresh the summary label, then re-filter.
     this.querySelector('.religion-panel')?.addEventListener('change', (event) => this.#handleReligionChange(event));
+    // Close the affiliation dropdown when clicking anywhere outside it.
+    document.addEventListener('click', (event) => {
+      const details = /** @type {HTMLDetailsElement|null} */ (this.querySelector('.religion-filter'));
+      if (details?.open && event.target instanceof Node && !details.contains(event.target)) details.open = false;
+    });
     // Exclude-states checkboxes live outside the controls form.
     this.querySelector('.state-exclude')?.addEventListener('change', () => {
       const checked = this.querySelectorAll('.state-exclude input:checked');
@@ -683,15 +691,9 @@ class CollegeResults extends HTMLElement {
     }
   }
 
-  /** @returns {boolean} whether the "Favorites only" filter is active */
-  #favoritesOnly() {
-    return Boolean(/** @type {HTMLInputElement|null} */ (this.querySelector('.favorites-only'))?.checked);
-  }
-
   /**
-   * Toggle a card's favorite state. Persists immediately. When the "Favorites
-   * only" filter is on, a full re-render lets the un-favorited card drop out;
-   * otherwise the button is updated in place to avoid re-rendering the grid.
+   * Toggle a card's favorite state. Persists immediately, then updates the
+   * button in place to avoid re-rendering the grid.
    * @param {MouseEvent} event
    */
   #handleFavoriteClick(event) {
@@ -705,10 +707,6 @@ class CollegeResults extends HTMLElement {
     if (favorited) this.#favorites.add(id);
     else this.#favorites.delete(id);
     this.#saveFavorites();
-    if (this.#favoritesOnly()) {
-      this.#update();
-      return;
-    }
     button.classList.toggle('is-favorite', favorited);
     button.setAttribute('aria-pressed', String(favorited));
     const buttonLabel = favorited ? 'Remove from favorites' : 'Save to favorites';
@@ -805,14 +803,13 @@ class CollegeResults extends HTMLElement {
   }
 
   /**
-   * Field-of-study term from the search; the Relevance sort ranks schools by their
-   * highest matching-program share. Set before `results` so the first sort sees it.
-   * @param {string} value
+   * Fields of study from the search; the Relevance sort ranks schools by how many
+   * of them they offer, then by combined share. Set before `results` so the first
+   * sort sees it.
+   * @param {string[]} value
    */
-  set relevanceTerm(value) {
-    this.#relevanceTerm = String(value ?? '')
-      .trim()
-      .toLocaleLowerCase();
+  set relevanceTerms(value) {
+    this.#relevanceTerms = (Array.isArray(value) ? value : []).map(String).filter(Boolean);
   }
 
   /**
@@ -827,46 +824,59 @@ class CollegeResults extends HTMLElement {
   }
 
   /**
-   * Largest share of degrees among a school's programs whose title contains the
-   * searched field-of-study term. Null when there's no term or no matching program.
+   * Largest share of degrees among a school's programs matching one selected field
+   * of study. Null when no program matches.
    * @param {MappedSchool} school
+   * @param {string} term a selected program title
    * @param {Set<number>|null} allowedCredentials
    * @returns {number|null}
    */
-  #fieldShare(school, allowedCredentials) {
-    if (!this.#relevanceTerm) return null;
+  #termShare(school, term, allowedCredentials) {
     let max = -1;
     for (const program of programsWithShare(school, allowedCredentials)) {
-      if (program.title?.toLocaleLowerCase().includes(this.#relevanceTerm)) max = Math.max(max, program.share ?? 0);
+      if (fieldMatches(program.title, term)) max = Math.max(max, program.share ?? 0);
     }
     return max < 0 ? null : max;
   }
 
   /**
-   * Relevance score for sorting: the field-of-study share, or -1 when absent so
-   * such schools sort last and the sort falls through to distance.
+   * Relevance score for sorting: how many of the selected fields of study a school
+   * offers (`count`) and their combined share (`share`). Schools offering more of
+   * the chosen programs rank first, then those with a larger combined share.
    * @param {MappedSchool} school
    * @param {Set<number>|null} allowedCredentials
-   * @returns {number}
+   * @returns {{ count: number, share: number }}
    */
   #relevanceScore(school, allowedCredentials) {
-    return this.#fieldShare(school, allowedCredentials) ?? -1;
+    let count = 0;
+    let share = 0;
+    for (const term of this.#relevanceTerms) {
+      const termShare = this.#termShare(school, term, allowedCredentials);
+      if (termShare != null) {
+        count += 1;
+        share += termShare;
+      }
+    }
+    return { count, share };
   }
 
   /**
-   * Tile showing the searched field of study's share of a school's degrees; empty
-   * string when no field of study was searched (e.g. the name-search page).
+   * One tile per selected field of study, each showing that program's share of a
+   * school's degrees. Empty string when nothing was searched (e.g. name-search).
    * @param {MappedSchool} school
    * @param {Set<number>|null} allowedCredentials
    * @returns {string}
    */
-  #fieldShareTile(school, allowedCredentials) {
-    const term = this.#relevanceTerm;
-    if (!term) return '';
-    const share = this.#fieldShare(school, allowedCredentials);
-    const value = share == null ? NOT_REPORTED : `${Math.round(share * 100)}%`;
-    const displayTerm = term.charAt(0).toUpperCase() + term.slice(1);
-    return `<div class="field-share" data-tip="Share of degrees in ${escapeHtml(term)}"><strong>${escapeHtml(value)}</strong><span>${escapeHtml(displayTerm)}</span></div>`;
+  #fieldShareTiles(school, allowedCredentials) {
+    return this.#relevanceTerms
+      .map((term) => {
+        const share = this.#termShare(school, term, allowedCredentials);
+        const value = share == null ? NOT_REPORTED : `${Math.round(share * 100)}%`;
+        // The tile is narrow, so show just the program's first word; the full name
+        // stays in the tooltip.
+        return `<div class="field-share" data-tip="Share of degrees in ${escapeHtml(term)}"><strong>${escapeHtml(value)}</strong><span>${escapeHtml(firstWordLabel(term))}</span></div>`;
+      })
+      .join('');
   }
 
   /** @param {MappedSchool[]} value */
@@ -886,10 +896,16 @@ class CollegeResults extends HTMLElement {
     this.#controls().reset();
     // form.reset() restores each affiliation checkbox to its default (All checked).
     this.#updateReligionSummary();
-    this.#excludedStates = new Set();
-    this.querySelectorAll('.state-exclude input').forEach((box) => {
-      /** @type {HTMLInputElement} */ (box).checked = false;
+    // Restore the state-exclude default: all states except the user's own checked
+    // (see #renderStateChips). When called before the chips exist (initial results
+    // load), there are no boxes yet and #renderStateChips sets this up instead.
+    const origin = this.#originState;
+    const boxes = /** @type {HTMLInputElement[]} */ ([...this.querySelectorAll('.state-exclude input')]);
+    const defaultToOrigin = Boolean(origin) && boxes.some((box) => box.value === origin);
+    boxes.forEach((box) => {
+      box.checked = defaultToOrigin && box.value !== origin;
     });
+    this.#excludedStates = new Set(boxes.filter((box) => box.checked).map((box) => box.value));
     // On the name-search page, relevance/distance sorts and degree restrictions don't apply.
     if (this.#hideDistance) {
       const sort = /** @type {HTMLSelectElement} */ (this.querySelector('.result-sort'));
@@ -915,14 +931,20 @@ class CollegeResults extends HTMLElement {
       return;
     }
     container.hidden = false;
+    // Default to excluding every state except the user's own — but only when that
+    // state is actually among the results; otherwise excluding all others would
+    // leave nothing, so fall back to excluding none.
+    const origin = this.#originState;
+    const defaultToOrigin = Boolean(origin) && states.includes(/** @type {string} */ (origin));
     container.innerHTML =
       '<span class="state-exclude-label">Exclude states</span>' +
       states
         .map(
           (state) =>
-            `<label class="state-chip"><input type="checkbox" value="${escapeHtml(state)}" />${escapeHtml(state)}</label>`
+            `<label class="state-chip"><input type="checkbox" value="${escapeHtml(state)}"${defaultToOrigin && state !== origin ? ' checked' : ''} />${escapeHtml(state)}</label>`
         )
         .join('');
+    this.#excludedStates = new Set(defaultToOrigin ? states.filter((state) => state !== origin) : []);
   }
 
   /**
@@ -932,6 +954,7 @@ class CollegeResults extends HTMLElement {
    * when no result reports a known affiliation.
    */
   #renderReligionOptions() {
+    const field = /** @type {HTMLElement} */ (this.querySelector('.religion-field'));
     const details = /** @type {HTMLDetailsElement} */ (this.querySelector('.religion-filter'));
     const panel = /** @type {HTMLElement} */ (this.querySelector('.religion-panel'));
     const codes = [
@@ -944,11 +967,11 @@ class CollegeResults extends HTMLElement {
     ].sort((a, b) => label(RELIGIOUS_AFFILIATION, a).localeCompare(label(RELIGIOUS_AFFILIATION, b)));
     details.open = false;
     if (!codes.length) {
-      details.hidden = true;
+      field.hidden = true;
       panel.innerHTML = '';
       return;
     }
-    details.hidden = false;
+    field.hidden = false;
     const option = (value, text, checked) =>
       `<label class="religion-option"><input type="checkbox" class="religion-check" value="${escapeHtml(value)}"${checked ? ' checked' : ''} />${escapeHtml(text)}</label>`;
     panel.innerHTML =
@@ -1054,15 +1077,19 @@ class CollegeResults extends HTMLElement {
     const religionNone = religion.includes('none');
     const religionOnly = religion.includes('only');
     const religionCodes = new Set(religion.filter((value) => value !== 'all' && value !== 'none' && value !== 'only'));
-    const favoritesOnly = this.#favoritesOnly();
     const sort = /** @type {HTMLSelectElement} */ (this.querySelector('.result-sort')).value;
-    const [field, direction] = sort.split('-');
+    // Split on the last hyphen only: field names can themselves contain hyphens
+    // (e.g. "net-price-asc" → field "net-price", direction "asc").
+    const lastHyphen = sort.lastIndexOf('-');
+    const field = lastHyphen === -1 ? sort : sort.slice(0, lastHyphen);
+    const direction = lastHyphen === -1 ? '' : sort.slice(lastHyphen + 1);
     /** @type {Record<string, (school: MappedSchool) => number|undefined>} */
     const getters = {
       distance: (school) => school.location.distance,
       enrollment: (school) => school.enrollment.size,
       'net-price': (school) => school.cost.netPriceOverall,
-      'admission-rate': (school) => school.admissions.admissionRate
+      'admission-rate': (school) => school.admissions.admissionRate,
+      ratio: (school) => school.faculty.studentRatio
     };
     const getter = getters[field];
     const results = this.#allResults
@@ -1089,16 +1116,19 @@ class CollegeResults extends HTMLElement {
           !(hideLowDiversity && diversityRating(school) === 'Low') &&
           !(hideLowFt && ftRate != null && ftFacultyRating(ftRate) === 'Low') &&
           !(hideNonCoed && isSingleSex) &&
-          religionPass &&
-          (!favoritesOnly || (school.id != null && this.#favorites.has(String(school.id))))
+          religionPass
         );
       })
       .sort((a, b) => {
-        // Relevance: highest matching-program share for the searched field of study,
-        // then nearest first. With no field of study, it reduces to nearest first.
+        // Relevance: schools offering more of the selected fields of study first,
+        // then by combined share, then nearest first. With no fields of study
+        // selected, both scores are zero and it reduces to nearest first.
         if (sort === 'relevance') {
+          const aScore = this.#relevanceScore(a, allowed);
+          const bScore = this.#relevanceScore(b, allowed);
           return (
-            this.#relevanceScore(b, allowed) - this.#relevanceScore(a, allowed) ||
+            bScore.count - aScore.count ||
+            bScore.share - aScore.share ||
             compareNullable(a.location.distance, b.location.distance, 1) ||
             a.name.localeCompare(b.name)
           );
@@ -1184,13 +1214,47 @@ class CollegeResults extends HTMLElement {
     const directionsLink = this.#hideDistance
       ? `<a href="#" class="directions-link" data-destination="${escapeHtml(destination)}">Directions ↗</a>`
       : `<a href="${escapeHtml(directionsUrl(destination, DIRECTIONS_ORIGIN))}" target="_blank" rel="noreferrer">Directions ↗</a>`;
-    return `<article class="result-card${locationClass}"><div class="rank-col"><div class="rank">${String(index + 1).padStart(2, '0')}</div>${favoriteButton}</div><div class="school-info"><div class="badges">${distanceBadge}<span>${escapeHtml(ownershipLabel(school.ownershipCode))}</span>${designationBadges}</div><h3>${escapeHtml(school.name)}</h3><p>${escapeHtml(school.location.city ?? '')}, ${escapeHtml(school.location.state ?? '')}</p></div><div class="metrics">${this.#fieldShareTile(school, allowedCredentials)}${selectivityTile(school)}${diversityTile(school)}<div class="enrollment"><strong>${escapeHtml(formatCount(school.enrollment.size))}</strong><span>undergrads</span></div>${residentialTile(school)}${facultyRatioTile(school)}${facultyFtTile(school)}</div><div class="card-links">${school.profile.website ? `<a href="${escapeHtml(school.profile.website)}" target="_blank" rel="noreferrer">Website ↗</a>` : ''}${directionsLink}</div><details class="school-details"${school.id == null ? '' : ` data-id="${escapeHtml(String(school.id))}"`}><summary>View all details</summary><div class="detail-grid"></div></details></article>`;
+    // Website sits above the tiles, Directions below — flanking the metric tiles.
+    const websiteLink = school.profile.website
+      ? `<a href="${escapeHtml(school.profile.website)}" target="_blank" rel="noreferrer">Website ↗</a>`
+      : '';
+    return `<article class="result-card${locationClass}"><div class="rank-col"><div class="rank">${String(index + 1).padStart(2, '0')}</div>${favoriteButton}</div><div class="school-info"><div class="badges">${distanceBadge}<span>${escapeHtml(ownershipLabel(school.ownershipCode))}</span>${designationBadges}</div><h3>${escapeHtml(school.name)}</h3><p>${escapeHtml(school.location.city ?? '')}, ${escapeHtml(school.location.state ?? '')}</p></div>
+    <div class="metrics-col">
+    <div class="metrics-col-links">
+    ${websiteLink}
+    ${directionsLink}
+    </div>
+    <div class="metrics">
+    ${this.#fieldShareTiles(school, allowedCredentials)}
+    ${selectivityTile(school)}
+    ${diversityTile(school)}
+    <div class="enrollment">
+      <strong>${escapeHtml(formatCount(school.enrollment.size))}</strong><span>undergrads</span>
+    </div>
+    ${residentialTile(school)}
+    ${facultyRatioTile(school)}
+    ${facultyFtTile(school)}
+    </div>
+    </div>
+    <details class="school-details"${school.id == null ? '' : ` data-id="${escapeHtml(String(school.id))}"`}>
+    <summary>View all details</summary>
+    <div class="detail-grid"></div>
+    </details>
+    </article>`;
   }
 
   #export() {
     const quote = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`;
-    const term = this.#relevanceTerm;
     const allowed = this.#allowedCredentials();
+    // One column per selected field of study, mirroring the card's field tiles.
+    /** @type {Array<[string, (school: MappedSchool) => *]>} */
+    const fieldColumns = this.#relevanceTerms.map((term) => [
+      `${term} (% of degrees)`,
+      (school) => {
+        const share = this.#termShare(school, term, allowed);
+        return share == null ? '' : Math.round(share * 100);
+      }
+    ]);
     // Columns mirror the card's school-info and metric tiles.
     /** @type {Array<[string, (school: MappedSchool) => *]>} */
     const columns = [
@@ -1199,17 +1263,7 @@ class CollegeResults extends HTMLElement {
       ['State', (school) => school.location.state],
       ['Distance (mi)', (school) => (school.location.distance == null ? '' : Math.round(school.location.distance))],
       ['Ownership', (school) => ownershipLabel(school.ownershipCode)],
-      ...(term
-        ? /** @type {Array<[string, (school: MappedSchool) => *]>} */ ([
-            [
-              `${term} (% of degrees)`,
-              (school) => {
-                const share = this.#fieldShare(school, allowed);
-                return share == null ? '' : Math.round(share * 100);
-              }
-            ]
-          ])
-        : []),
+      ...fieldColumns,
       [
         'Selectivity',
         (school) =>

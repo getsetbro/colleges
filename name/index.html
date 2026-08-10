@@ -3,6 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      // Apply the saved (or OS-preferred) theme before first paint to avoid a flash.
+      try {
+        var t = localStorage.getItem('college-theme');
+        if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        document.documentElement.dataset.theme = t;
+      } catch (e) {}
+    </script>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="description" content="Look up a college by name using College Scorecard data." />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -33,6 +41,7 @@
       <span>Data from the U.S. Department of Education College Scorecard</span
       ><a href="https://collegescorecard.ed.gov/data/" target="_blank" rel="noreferrer">API documentation ↗</a>
     </footer>
+    <theme-toggle></theme-toggle>
     <script type="module" src="/src/name-search.js"></script>
   </body>
 </html>

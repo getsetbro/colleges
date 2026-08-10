@@ -35,25 +35,69 @@
   /* Effects */
   --color-shadow: rgba(24, 58, 49, 0.14); /* ink at 14% */
 
+  /* Panel roles — decoupled from ink/surface so a dark theme can flip text and
+   * dark-panel backgrounds independently. Defaults keep the light theme identical. */
+  --color-panel: var(--color-ink); /* dark-panel bg: search card, footer, tooltip, active nav */
+  --color-panel-text: var(--color-surface); /* text on dark panels */
+  --color-on-gold: var(--color-ink); /* text on gold buttons/CTAs */
+
   color: var(--color-ink);
   background: var(--color-bg);
   font-family: 'DM Sans', sans-serif;
   font-synthesis: none;
 }
+
+/* ------------------------------------------------------------------ *
+ * Dark theme. Set data-theme="dark" on <html> (see theme-toggle.js).
+ * Same variable names, dark values; ink now reads as light text while
+ * --color-panel/-on-gold keep dark backgrounds and gold-button text dark.
+ * ------------------------------------------------------------------ */
+:root[data-theme='dark'] {
+  --color-accent: #e58666; /* terracotta, lifted for contrast on dark */
+  --color-gold: #d9ab4c;
+  --color-gold-text: #e6c680;
+
+  --color-ink: #e8e4d8; /* primary text (light) */
+  --color-ink-soft: #223a31; /* input fields on dark panels */
+  --color-green: #4e8471;
+
+  --color-text: #94a49b;
+  --color-text-faint: #6d7b73;
+  --color-on-dark: #93a69e;
+
+  --color-bg: #0e1a15;
+  --color-surface: #16241e; /* cards, inputs, result rows */
+  --color-surface-alt: #1d2e26; /* control panel, badges */
+
+  --color-border: #31433a;
+
+  --color-instate-bg: #13242f;
+  --color-instate-border: #33505f;
+  --color-instate-accent: #7ea9c4;
+
+  --color-shadow: rgba(0, 0, 0, 0.5);
+
+  --color-panel: #0a1712; /* deep green island: search card, footer, tooltip */
+  --color-panel-text: #f2efe5;
+  --color-on-gold: #17281f; /* dark text on gold buttons */
+
+  color: var(--color-ink);
+  background: var(--color-bg);
+}
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; }
-main { width: min(1120px, calc(100% - 40px)); margin: auto; }
+main { width: min(1120px, calc(100% - 40px)); margin: auto;min-height: 90vh; }
 college-results { display: block; }
-
+body a[target="_blank"]:hover{text-decoration: underline;}
 .hero { padding: 60px 0 0; }
 .page-nav { display: flex; gap: 8px; justify-content: end; }
 .page-nav a { padding: 9px 17px; border: 1px solid var(--color-border); color: var(--color-text); font-size: .78rem; font-weight: 700; text-decoration: none; letter-spacing: .02em; transition: border-color .15s, color .15s; }
 .page-nav a:hover { border-color: var(--color-accent); color: var(--color-accent); }
-.page-nav a[aria-current="page"] { background: var(--color-ink); border-color: var(--color-ink); color: var(--color-surface); }
+.page-nav a[aria-current="page"] { background: var(--color-panel); border-color: var(--color-panel); color: var(--color-panel-text); }
 h1, h2, h3, p { margin-top: 0; }
 h1 { margin-bottom: 24px; font: 400 clamp(3rem, 8vw, 6.5rem)/.92 'DM Serif Display', serif; letter-spacing: -.045em; }
 h1 span { color: var(--color-accent); font-style: italic; }
-.search-card { background: var(--color-ink); color: var(--color-surface); padding: 38px; border-radius: 3px; box-shadow: 14px 14px 0 var(--color-gold); }
+.search-card { background: var(--color-panel); color: var(--color-panel-text); padding: 38px; border-radius: 3px; box-shadow: 14px 14px 0 var(--color-gold); }
 .section-heading, .section-heading > div { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .section-heading h2 { margin: 0; font: 400 1.7rem 'DM Serif Display', serif; }
 .quiet, .hint { color: var(--color-on-dark); font-size: .78rem; }
@@ -68,30 +112,31 @@ button:disabled { cursor: wait; opacity: .6; }
 .status.loading::before { content: ''; display: inline-block; width: 10px; height: 10px; margin-right: 10px; border: 2px solid var(--color-gold); border-top-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; }
 .status.error { color: var(--color-accent); }
 @keyframes spin { to { transform: rotate(360deg); } }
-.result-controls { display: grid; grid-template-columns: minmax(180px, 1.4fr) repeat(2, minmax(130px, 1fr)) auto; gap: 12px; align-items: end; margin-bottom: 24px; padding: 18px; background: var(--color-surface-alt); }
+.result-controls { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; align-items: end; margin-bottom: 24px; padding: 18px; background: var(--color-surface-alt); }
 .result-controls[hidden] { display: none; }
 .result-controls label { color: var(--color-text); font-size: .68rem; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }
 .result-controls input, .result-controls select { width: 100%; height: 42px; margin-top: 7px; padding: 0 11px; border: 1px solid var(--color-border); border-radius: 0; outline: none; background: var(--color-surface); color: var(--color-ink); font: 400 .82rem 'DM Sans', sans-serif; }
 .result-controls input:focus, .result-controls select:focus { border-color: var(--color-accent); box-shadow: 0 0 0 1px var(--color-accent); }
 .result-controls .secondary { height: 42px; }
-.state-exclude { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: -8px 0 24px; }
+.controls-footer { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.controls-footer .clear-filters { margin-left: auto; }
+.state-exclude { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
 .state-exclude[hidden] { display: none; }
 .attr-exclude { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
 .state-exclude-label, .attr-exclude-label { color: var(--color-text); font-size: .68rem; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }
 .state-chip, .attr-chip { display: inline-flex; align-items: center; gap: 5px; font-size: .78rem; color: var(--color-ink); cursor: pointer; }
 .state-chip input, .attr-chip input, .religion-option input { width: auto; height: auto; margin: 0; padding: 0; border: 0; background: none; cursor: pointer; }
-.religion-filter { grid-column: 1 / -1; position: relative; }
+.religion-filter { position: relative; margin-top: 7px; text-transform: none; letter-spacing: normal; }
 .religion-filter > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; height: 42px; padding: 0 11px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-ink); font: 400 .82rem 'DM Sans', sans-serif; cursor: pointer; list-style: none; }
 .religion-filter > summary::-webkit-details-marker { display: none; }
 .religion-filter[open] > summary { border-color: var(--color-accent); box-shadow: 0 0 0 1px var(--color-accent); }
-.religion-filter-label { color: var(--color-text); font-size: .68rem; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }
-.religion-summary { display: inline-flex; align-items: center; gap: 6px; color: var(--color-ink); font-weight: 600; }
+.religion-summary { display: flex; flex: 1; align-items: center; justify-content: space-between; gap: 6px; color: var(--color-ink); font-weight: 600; }
 .religion-summary::after { content: '▾'; color: var(--color-text); font-size: .7rem; }
 .religion-filter[open] .religion-summary::after { content: '▴'; }
 .religion-panel { position: absolute; z-index: 5; left: 0; right: 0; margin-top: 4px; max-height: 280px; overflow-y: auto; display: flex; flex-direction: column; gap: 9px; padding: 12px; background: var(--color-surface); border: 1px solid var(--color-border); box-shadow: 0 8px 22px var(--color-shadow); }
 .religion-option { display: flex; align-items: center; gap: 8px; font-size: .8rem; color: var(--color-ink); cursor: pointer; }
 .results-grid { display: grid; gap: 10px; }
-.result-card { position: relative; display: grid; grid-template-columns: 50px 1fr auto auto; gap: 20px; align-items: center; padding: 25px; background: var(--color-surface); border: 1px solid var(--color-border); }
+.result-card { position: relative; display: grid; grid-template-columns: 50px 1fr auto; gap: 20px; align-items: center; padding: 25px; background: var(--color-surface); border: 1px solid var(--color-border); }
 .result-card:hover { border-color: var(--color-gold); }
 .result-card.in-state { background: var(--color-instate-bg); border-color: var(--color-instate-border); }
 .result-card.in-state:hover { border-color: var(--color-instate-accent); }
@@ -109,12 +154,13 @@ h3 { margin-bottom: 3px; font: 400 1.3rem 'DM Serif Display', serif; }
 .metrics { display: flex; flex-wrap: wrap; gap: 20px; }
 /* Instant hover/focus tooltip — replaces the slow native title attribute. */
 [data-tip] { position: relative; }
-[data-tip]:hover::after, [data-tip]:focus-visible::after { content: attr(data-tip); position: absolute; bottom: calc(100% + 7px); left: 50%; transform: translateX(-50%); z-index: 20; width: max-content; max-width: 220px; padding: 7px 10px; background: var(--color-ink); color: var(--color-surface); font: 400 .72rem/1.35 'DM Sans', sans-serif; letter-spacing: 0; text-transform: none; text-align: left; border-radius: 4px; box-shadow: 0 6px 18px var(--color-shadow); white-space: normal; pointer-events: none; }
+[data-tip]:hover::after, [data-tip]:focus-visible::after { content: attr(data-tip); position: absolute; bottom: calc(100% + 7px); left: 50%; transform: translateX(-50%); z-index: 20; width: max-content; max-width: 220px; padding: 7px 10px; background: var(--color-panel); color: var(--color-panel-text); font: 400 .72rem/1.35 'DM Sans', sans-serif; letter-spacing: 0; text-transform: none; text-align: left; border-radius: 4px; box-shadow: 0 6px 18px var(--color-shadow); white-space: normal; pointer-events: none; }
 .enrollment, .diversity, .selectivity, .residential, .faculty-ratio, .faculty-ft, .field-share { display: flex; flex-direction: column; }
 .enrollment strong, .diversity strong, .selectivity strong, .residential strong, .faculty-ratio strong, .faculty-ft strong, .field-share strong { font: 400 1.35rem 'DM Serif Display', serif; }
-.card-links { display: flex; flex-direction: column; align-items: flex-start; gap: 7px; }
-.card-links a { color: var(--color-accent); font-size: .75rem; font-weight: 700; text-decoration: none; white-space: nowrap; }
-.favorites-chip { margin-left: auto; }
+/* Website above the tiles, Directions below; the tiles fill the freed space. */
+.metrics-col { display: flex; flex-direction: column; gap: 5px;}
+.metrics-col-links { gap:1rem;display: flex; justify-content: flex-end;}
+.metrics-col-links a { color: var(--color-accent); font-size: .75rem; font-weight: 700; text-decoration: none; white-space: nowrap; }
 .school-details { grid-column: 2 / -1; border-top: 1px solid var(--color-border); padding-top: 14px; }
 .school-details summary { width: max-content; color: var(--color-green); font-size: .78rem; font-weight: 700; cursor: pointer; }
 .detail-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; padding-top: 22px; }
@@ -146,27 +192,30 @@ h3 { margin-bottom: 3px; font: 400 1.3rem 'DM Serif Display', serif; }
 .detail-note { grid-column: 1 / -1; margin: 4px 0 0; color: var(--color-text-faint); font-size: .66rem; font-style: italic; line-height: 1.5; }
 .badges { flex-wrap: wrap; }
 .empty { display: flex; flex-direction: column; gap: 8px; padding: 60px; text-align: center; color: var(--color-text); border: 1px dashed var(--color-border); }
-footer { display: flex; justify-content: space-between; gap: 20px; padding: 25px max(20px, calc((100% - 1120px) / 2)); background: var(--color-ink); color: var(--color-on-dark); font-size: .75rem; }
+footer { display: flex; justify-content: space-between; gap: 20px; padding: 25px max(20px, calc((100% - 1120px) / 2)); background: var(--color-panel); color: var(--color-on-dark); font-size: .75rem; }
 footer a { color: var(--color-gold); text-decoration: none; }
+.footer-row { width: min(1120px, calc(100% - 40px)); margin: 20px auto; }
+.theme-toggle button { display: inline-flex; align-items: center; gap: 8px; padding: 9px 16px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text); font: 700 .72rem 'DM Sans', sans-serif; letter-spacing: .06em; text-transform: uppercase; cursor: pointer; transition: border-color .15s, color .15s; }
+.theme-toggle button:hover { border-color: var(--color-accent); color: var(--color-accent); }
+.theme-toggle .theme-toggle-icon { font-size: .95rem; line-height: 1; }
 /* Theme palette reference, shown below the footer. */
 .palette { width: min(1120px, calc(100% - 40px)); margin: 48px auto 80px; }
 .palette h2 { margin: 0 0 4px; font: 400 1.7rem 'DM Serif Display', serif; }
 .palette > p { margin: 0 0 8px; color: var(--color-text); font-size: .8rem; }
-.palette-group { margin-top: 26px; }
 .palette-group h3 { margin: 0 0 12px; color: var(--color-text); font-size: .7rem; letter-spacing: .09em; text-transform: uppercase; }
 .swatches { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(12%, 1fr));}
 .swatches > li { height: 64px; outline: #44444470 dotted 0.5px }
-@media (max-width: 800px) { .result-controls { grid-template-columns: 1fr 1fr; } .result-card { grid-template-columns: 38px 1fr auto; } .card-links { grid-column: 2 / -1; flex-direction: row; } .school-details { grid-column: 2 / -1; } .detail-grid { grid-template-columns: repeat(2, 1fr); } }
-@media (max-width: 560px) { main { width: min(100% - 24px, 1120px); } .hero { padding: 58px 0 42px; } .search-card { padding: 24px; box-shadow: 7px 7px 0 var(--color-gold); } .quiet { display: none; } .results-section { padding: 30px 0; } .result-controls { grid-template-columns: 1fr; } .result-card { grid-template-columns: 30px 1fr; gap: 10px; padding: 18px 14px; } .metrics { grid-column: 2; } .enrollment, .diversity, .selectivity, .residential, .faculty-ratio, .faculty-ft, .field-share { flex-direction: row; align-items: baseline; gap: 5px; } .card-links, .school-details { grid-column: 2; } .detail-grid { grid-template-columns: 1fr; gap: 20px; } footer { flex-direction: column; } }
+@media (max-width: 800px) { .result-controls { grid-template-columns: 1fr 1fr; } .result-card { grid-template-columns: 38px 1fr auto; } .school-details { grid-column: 2 / -1; } .detail-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 560px) { main { width: min(100% - 24px, 1120px); } .hero { padding: 58px 0 42px; } .search-card { padding: 24px; box-shadow: 7px 7px 0 var(--color-gold); } .quiet { display: none; } .results-section { padding: 30px 0; } .result-controls { grid-template-columns: 1fr; } .result-card { grid-template-columns: 30px 1fr; gap: 10px; padding: 18px 14px; } .metrics-col { grid-column: 2; margin-left: 0; } .enrollment, .diversity, .selectivity, .residential, .faculty-ratio, .faculty-ft, .field-share { flex-direction: row; align-items: baseline; gap: 5px; } .school-details { grid-column: 2; } .detail-grid { grid-template-columns: 1fr; gap: 20px; } footer { flex-direction: column; } }
 
 /* Print: only the results list, showing each card's school-info and metrics. */
 @media print {
-  .hero, .search-card, footer, .section-heading, .status, .result-controls, .state-exclude, .palette { display: none !important; }
+  .hero, .search-card, footer, .section-heading, .status, .result-controls, .theme-toggle, .palette { display: none !important; }
   main { width: 100%; }
   .results-section { padding: 0; }
   .results-grid { display: block; }
   .result-card { display: flex; justify-content: space-between; align-items: baseline; gap: 24px; padding: 8px 0; background: none; border: 0; border-bottom: 1px solid var(--color-border); break-inside: avoid; page-break-inside: avoid; }
-  .result-card .rank-col, .result-card .card-links, .result-card .school-details { display: none !important; }
+  .result-card .rank-col, .result-card .metrics-col > a, .result-card .school-details { display: none !important; }
   .result-card .school-info { flex: 1; }
   .metrics { gap: 16px; }
 }

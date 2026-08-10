@@ -12,7 +12,7 @@ const SUMMARY_FIELD_LIST = SUMMARY_FIELDS.join(',');
 const FULL_FIELD_LIST = [...INSTITUTION_FIELDS, ...PROGRAM_FIELDS].join(',');
 
 /**
- * @typedef {{ zip: string, radius: number, minStudents: number, maxStudents: number, fieldOfStudy?: string }} SearchCriteria
+ * @typedef {{ zip: string, radius: number, minStudents: number, maxStudents: number, fieldsOfStudy?: string[] }} SearchCriteria
  */
 
 /**
@@ -74,7 +74,7 @@ export function search(criteria, apiKey) {
   // A field-of-study search filters/ranks by each school's program titles, which
   // only the nested program list carries — so request it (and PROGRAM_FIELDS)
   // then. Plain location browsing needs neither and stays lean.
-  const options = criteria.fieldOfStudy
+  const options = criteria.fieldsOfStudy?.length
     ? { fields: [...SUMMARY_FIELDS, ...PROGRAM_FIELDS].join(','), nested: true }
     : undefined;
   return fetchAllPages(
