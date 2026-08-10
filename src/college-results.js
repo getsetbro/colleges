@@ -508,7 +508,7 @@ class CollegeResults extends HTMLElement {
           </details></label>
           <div class="attr-exclude">
             <span class="attr-exclude-label">Hide</span>
-            <label class="attr-chip"><input type="checkbox" class="hide-nonresidential" checked />Non-residential</label>
+            <label class="attr-chip"><input type="checkbox" class="hide-nonresidential" checked />Low residential</label>
             <label class="attr-chip"><input type="checkbox" class="hide-low-diversity" checked />Low diversity</label>
             <label class="attr-chip"><input type="checkbox" class="hide-low-ft" checked />Low FT faculty</label>
             <label class="attr-chip"><input type="checkbox" class="hide-noncoed" checked />Non-coed</label>
@@ -874,7 +874,7 @@ class CollegeResults extends HTMLElement {
         const value = share == null ? NOT_REPORTED : `${Math.round(share * 100)}%`;
         // The tile is narrow, so show just the program's first word; the full name
         // stays in the tooltip.
-        return `<div class="field-share" data-tip="Share of degrees in ${escapeHtml(term)}"><strong>${escapeHtml(value)}</strong><span>${escapeHtml(firstWordLabel(term))}</span></div>`;
+        return `<div class="field-share" data-tip="${escapeHtml(term)}"><strong>${escapeHtml(value)}</strong><span>${escapeHtml(firstWordLabel(term))}</span></div>`;
       })
       .join('');
   }
@@ -1204,6 +1204,11 @@ class CollegeResults extends HTMLElement {
           `<span data-tip="${escapeHtml(d.title)}" aria-label="${escapeHtml(d.title)}">${escapeHtml(d.label)}</span>`
       )
       .join('');
+    const religionLabel = label(RELIGIOUS_AFFILIATION, school.profile.religiousAffiliation);
+    const religionBadge =
+      school.profile.religiousAffiliation != null && religionLabel !== NOT_REPORTED
+        ? `<span>${escapeHtml(religionLabel)}</span>`
+        : '';
     const favorited = school.id != null && this.#favorites.has(String(school.id));
     const favoriteButton =
       school.id == null
@@ -1218,7 +1223,7 @@ class CollegeResults extends HTMLElement {
     const websiteLink = school.profile.website
       ? `<a href="${escapeHtml(school.profile.website)}" target="_blank" rel="noreferrer">Website ↗</a>`
       : '';
-    return `<article class="result-card${locationClass}"><div class="rank-col"><div class="rank">${String(index + 1).padStart(2, '0')}</div>${favoriteButton}</div><div class="school-info"><div class="badges">${distanceBadge}<span>${escapeHtml(ownershipLabel(school.ownershipCode))}</span>${designationBadges}</div><h3>${escapeHtml(school.name)}</h3><p>${escapeHtml(school.location.city ?? '')}, ${escapeHtml(school.location.state ?? '')}</p></div>
+    return `<article class="result-card${locationClass}"><div class="rank-col"><div class="rank">${String(index + 1).padStart(2, '0')}</div>${favoriteButton}</div><div class="school-info"><div class="badges">${distanceBadge}<span>${escapeHtml(ownershipLabel(school.ownershipCode))}</span>${designationBadges}${religionBadge}</div><h3>${escapeHtml(school.name)}</h3><p>${escapeHtml(school.location.city ?? '')}, ${escapeHtml(school.location.state ?? '')}</p></div>
     <div class="metrics-col">
     <div class="metrics-col-links">
     ${websiteLink}
