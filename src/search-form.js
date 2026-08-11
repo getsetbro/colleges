@@ -41,7 +41,7 @@ template.innerHTML = `
   </style>
   <form>
     <label>ZIP code<input name="zip" type="search" inputmode="numeric" pattern="[0-9]{5}" maxlength="5" value="45036" required /></label>
-    <label>Radius (miles)<input name="radius" type="number" min="1" max="500" value="250" /></label>
+    <label>Radius (miles)<input name="radius" type="number" min="1" value="250" /></label>
     <label>Min undergrads<input name="minStudents" type="number" min="0" max="100000" value="600" /></label>
     <label>Max undergrads<input name="maxStudents" type="number" min="2" max="100000" value="3000" /></label>
     <label class="fos">Fields of study (up to ${MAX_FIELDS}, optional)
