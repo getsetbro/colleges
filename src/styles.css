@@ -124,8 +124,10 @@ button:disabled { cursor: wait; opacity: .6; }
 .state-exclude[hidden] { display: none; }
 .attr-exclude { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
 .state-exclude-label, .attr-exclude-label { color: var(--color-text); font-size: .68rem; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }
+.state-toggle-all { padding: 2px 8px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text); font: 700 .62rem 'DM Sans', sans-serif; letter-spacing: .07em; text-transform: uppercase; cursor: pointer; }
+.state-toggle-all:hover { border-color: var(--color-accent); color: var(--color-ink); }
 .state-chip, .attr-chip { display: inline-flex; align-items: center; gap: 5px; font-size: .78rem; color: var(--color-ink); cursor: pointer; }
-.state-chip input, .attr-chip input, .religion-option input { width: auto; height: auto; margin: 0; padding: 0; border: 0; background: none; cursor: pointer; }
+.state-chip input, .attr-chip input, .religion-option input { width: auto; height: auto; margin: 0; padding: 0; border: 0; background: none; cursor: pointer; accent-color: var(--color-accent); }
 .religion-filter { position: relative; margin-top: 7px; text-transform: none; letter-spacing: normal; }
 .religion-filter > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; height: 42px; padding: 0 11px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-ink); font: 400 .82rem 'DM Sans', sans-serif; cursor: pointer; list-style: none; }
 .religion-filter > summary::-webkit-details-marker { display: none; }

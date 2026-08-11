@@ -533,10 +533,14 @@ class CollegeResults extends HTMLElement {
       if (details?.open && event.target instanceof Node && !details.contains(event.target)) details.open = false;
     });
     // Exclude-states checkboxes live outside the controls form.
-    this.querySelector('.state-exclude')?.addEventListener('change', () => {
-      const checked = this.querySelectorAll('.state-exclude input:checked');
-      this.#excludedStates = new Set([...checked].map((box) => /** @type {HTMLInputElement} */ (box).value));
-      this.#update();
+    this.querySelector('.state-exclude')?.addEventListener('change', () => this.#syncExcludedStates());
+    // Toggle-all button: check every state when any is unchecked, else clear all.
+    this.querySelector('.state-exclude')?.addEventListener('click', (event) => {
+      if (!(event.target instanceof HTMLElement) || !event.target.classList.contains('state-toggle-all')) return;
+      const boxes = /** @type {HTMLInputElement[]} */ ([...this.querySelectorAll('.state-exclude input')]);
+      const check = !boxes.every((box) => box.checked);
+      boxes.forEach((box) => (box.checked = check));
+      this.#syncExcludedStates();
     });
     this.querySelector('.clear-filters')?.addEventListener('click', () => {
       this.#resetControls();
@@ -906,6 +910,7 @@ class CollegeResults extends HTMLElement {
       box.checked = defaultToOrigin && box.value !== origin;
     });
     this.#excludedStates = new Set(boxes.filter((box) => box.checked).map((box) => box.value));
+    this.#updateStateToggleLabel();
     // On the name-search page, relevance/distance sorts and degree restrictions don't apply.
     if (this.#hideDistance) {
       const sort = /** @type {HTMLSelectElement} */ (this.querySelector('.result-sort'));
@@ -938,6 +943,7 @@ class CollegeResults extends HTMLElement {
     const defaultToOrigin = Boolean(origin) && states.includes(/** @type {string} */ (origin));
     container.innerHTML =
       '<span class="state-exclude-label">Exclude states</span>' +
+      '<button type="button" class="state-toggle-all">All</button>' +
       states
         .map(
           (state) =>
@@ -945,6 +951,24 @@ class CollegeResults extends HTMLElement {
         )
         .join('');
     this.#excludedStates = new Set(defaultToOrigin ? states.filter((state) => state !== origin) : []);
+    this.#updateStateToggleLabel();
+  }
+
+  /** Sync #excludedStates from the checked state boxes, refresh the toggle label, and re-filter. */
+  #syncExcludedStates() {
+    const checked = this.querySelectorAll('.state-exclude input:checked');
+    this.#excludedStates = new Set([...checked].map((box) => /** @type {HTMLInputElement} */ (box).value));
+    this.#updateStateToggleLabel();
+    this.#update();
+  }
+
+  /** Point the toggle-all button at the action it will perform next (select All vs. None). */
+  #updateStateToggleLabel() {
+    const button = this.querySelector('.state-toggle-all');
+    if (!button) return;
+    const boxes = /** @type {HTMLInputElement[]} */ ([...this.querySelectorAll('.state-exclude input')]);
+    const allChecked = boxes.length > 0 && boxes.every((box) => box.checked);
+    button.textContent = allChecked ? 'None' : 'All';
   }
 
   /**
